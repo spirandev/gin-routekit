@@ -1,2 +1,2 @@
 # gin-routekit
-Reusable Go library for defining Gin routes with a fluent API, route metadata export, configurable auth/authz middleware, and generic route registration/sync support.
+gin-routekit is a reusable Go library that encapsulates a fluent route definition pattern for Gin applications. It supports route grouping, per-route metadata, authentication and authorization middleware configuration, route context injection, and a generic AppRouter for registering and syncing routes across projects.
