@@ -80,6 +80,7 @@ func (rg *RouterGroup) addRoute(method, path string, handler gin.HandlerFunc, de
 		RelativePath:     path,
 		IsAuthentication: boolPtr(true),
 		IsAuthorization:  boolPtr(true),
+		IsBasic:          boolPtr(false),
 	}
 
 	rg.definitions = append(rg.definitions, def)
@@ -97,6 +98,11 @@ func (rc *RouteConfig) Public() *RouteConfig {
 
 func (rc *RouteConfig) NoAuthz() *RouteConfig {
 	rc.group.definitions[rc.index].IsAuthorization = boolPtr(false)
+	return rc
+}
+
+func (rc *RouteConfig) BasicRoute() *RouteConfig {
+	rc.group.definitions[rc.index].IsBasic = boolPtr(true)
 	return rc
 }
 
