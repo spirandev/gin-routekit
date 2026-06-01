@@ -37,6 +37,7 @@ type Handler struct {
 	RelativePath     string
 	IsAuthentication *bool
 	IsAuthorization  *bool
+	IsBasic          *bool
 }
 
 type RouteRegistrar interface {
