@@ -28,16 +28,17 @@ type Route struct {
 }
 
 type Handler struct {
-	Handler          gin.HandlerFunc
-	Middleware       []gin.HandlerFunc
-	Method           string
-	Path             string
-	Definition       string
-	RouteId          int32
-	RelativePath     string
-	IsAuthentication *bool
-	IsAuthorization  *bool
-	IsBasic          *bool
+	Handler                   gin.HandlerFunc
+	Middleware                []gin.HandlerFunc
+	Method                    string
+	Path                      string
+	Definition                string
+	RouteId                   int32
+	RelativePath              string
+	IsAuthentication          *bool
+	IsAuthorization           *bool
+	IsBasic                   *bool
+	IsSameApplicationRequired *bool
 }
 
 type RouteRegistrar interface {
