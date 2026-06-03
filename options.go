@@ -3,9 +3,10 @@ package routekit
 import "github.com/gin-gonic/gin"
 
 type GroupOptions struct {
-	AuthMiddlewareFactory   func() gin.HandlerFunc
-	AuthorizationMiddleware gin.HandlerFunc
-	RouteContextKeys        RouteContextKeys
+	AuthMiddlewareFactory     func() gin.HandlerFunc
+	AuthorizationMiddleware   gin.HandlerFunc
+	SameApplicationMiddleware gin.HandlerFunc
+	RouteContextKeys          RouteContextKeys
 }
 
 type RouteContextKeys struct {
@@ -24,6 +25,12 @@ func WithAuthMiddlewareFactory(factory func() gin.HandlerFunc) GroupOption {
 func WithAuthorizationMiddleware(middleware gin.HandlerFunc) GroupOption {
 	return func(options *GroupOptions) {
 		options.AuthorizationMiddleware = middleware
+	}
+}
+
+func WithSameApplicationMiddleware(middleware gin.HandlerFunc) GroupOption {
+	return func(options *GroupOptions) {
+		options.SameApplicationMiddleware = middleware
 	}
 }
 
