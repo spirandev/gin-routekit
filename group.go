@@ -72,15 +72,16 @@ func (rg *RouterGroup) Handle(method, relativePath string, handler gin.HandlerFu
 
 func (rg *RouterGroup) addRoute(method, path string, handler gin.HandlerFunc, description string, routeID int32) *RouteConfig {
 	def := Handler{
-		Method:           method,
-		Path:             path,
-		Definition:       description,
-		Handler:          handler,
-		RouteId:          routeID,
-		RelativePath:     path,
-		IsAuthentication: boolPtr(true),
-		IsAuthorization:  boolPtr(true),
-		IsBasic:          boolPtr(false),
+		Method:                    method,
+		Path:                      path,
+		Definition:                description,
+		Handler:                   handler,
+		RouteId:                   routeID,
+		RelativePath:              path,
+		IsAuthentication:          boolPtr(true),
+		IsAuthorization:           boolPtr(true),
+		IsBasic:                   boolPtr(false),
+		IsSameApplicationRequired: boolPtr(true),
 	}
 
 	rg.definitions = append(rg.definitions, def)
@@ -103,6 +104,11 @@ func (rc *RouteConfig) NoAuthz() *RouteConfig {
 
 func (rc *RouteConfig) BasicRoute() *RouteConfig {
 	rc.group.definitions[rc.index].IsBasic = boolPtr(true)
+	return rc
+}
+
+func (rc *RouteConfig) AllowAnySessionApp() *RouteConfig {
+	rc.group.definitions[rc.index].IsSameApplicationRequired = boolPtr(false)
 	return rc
 }
 
