@@ -37,6 +37,7 @@ type Handler struct {
 	RelativePath              string
 	IsAuthentication          *bool
 	IsAuthorization           *bool
+	RequiresClientContext     *bool
 	IsBasic                   *bool
 	IsSameApplicationRequired *bool
 }

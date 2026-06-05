@@ -82,6 +82,7 @@ func (rg *RouterGroup) addRoute(method, path string, handler gin.HandlerFunc, de
 		IsAuthorization:           boolPtr(true),
 		IsBasic:                   boolPtr(false),
 		IsSameApplicationRequired: boolPtr(true),
+		RequiresClientContext:     boolPtr(false),
 	}
 
 	rg.definitions = append(rg.definitions, def)
@@ -99,6 +100,16 @@ func (rc *RouteConfig) Public() *RouteConfig {
 
 func (rc *RouteConfig) NoAuthz() *RouteConfig {
 	rc.group.definitions[rc.index].IsAuthorization = boolPtr(false)
+	return rc
+}
+
+func (rc *RouteConfig) RequireClientContext() *RouteConfig {
+	rc.group.definitions[rc.index].RequiresClientContext = boolPtr(true)
+	return rc
+}
+
+func (rc *RouteConfig) NoClientContext() *RouteConfig {
+	rc.group.definitions[rc.index].RequiresClientContext = boolPtr(false)
 	return rc
 }
 
