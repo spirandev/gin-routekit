@@ -141,7 +141,7 @@ func (rg *RouterGroup) Export(groupName string, appID int64) Route {
 				middlewares = append(middlewares, rg.options.AuthMiddlewareFactory())
 			}
 
-			if rg.options.SameApplicationMiddleware != nil || *def.IsSameApplicationRequired {
+			if rg.options.SameApplicationMiddleware != nil && (def.IsSameApplicationRequired == nil || *def.IsSameApplicationRequired) {
 				middlewares = append(middlewares, rg.options.SameApplicationMiddleware)
 			}
 
