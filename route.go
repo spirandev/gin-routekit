@@ -39,6 +39,7 @@ type Handler struct {
 	IsAuthorization           *bool
 	RequiresClientContext     *bool
 	IsBasic                   *bool
+	IsM2M                     *bool
 	IsSameApplicationRequired *bool
 }
 

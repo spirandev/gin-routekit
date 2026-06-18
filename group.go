@@ -81,6 +81,7 @@ func (rg *RouterGroup) addRoute(method, path string, handler gin.HandlerFunc, de
 		IsAuthentication:          boolPtr(true),
 		IsAuthorization:           boolPtr(true),
 		IsBasic:                   boolPtr(false),
+		IsM2M:                     boolPtr(false),
 		IsSameApplicationRequired: boolPtr(true),
 		RequiresClientContext:     boolPtr(false),
 	}
@@ -115,6 +116,11 @@ func (rc *RouteConfig) NoClientContext() *RouteConfig {
 
 func (rc *RouteConfig) BasicRoute() *RouteConfig {
 	rc.group.definitions[rc.index].IsBasic = boolPtr(true)
+	return rc
+}
+
+func (rc *RouteConfig) M2MRoute() *RouteConfig {
+	rc.group.definitions[rc.index].IsM2M = boolPtr(true)
 	return rc
 }
 
