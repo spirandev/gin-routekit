@@ -26,6 +26,15 @@ func TestExportMiddlewareBehavior(t *testing.T) {
 			wantSameApp:       1,
 		},
 		{
+			name: "m2m route keeps authenticated middleware behavior",
+			configureRoute: func(route *RouteConfig, _ *middlewareCounts) {
+				route.M2MRoute()
+			},
+			wantAuth:          1,
+			wantAuthorization: 1,
+			wantSameApp:       1,
+		},
+		{
 			name: "allow any session app skips same application middleware",
 			configureRoute: func(route *RouteConfig, _ *middlewareCounts) {
 				route.AllowAnySessionApp()
@@ -90,6 +99,50 @@ func TestExportMiddlewareBehavior(t *testing.T) {
 			}
 			if counts.custom != tt.wantCustom {
 				t.Errorf("custom middleware count = %d, want %d", counts.custom, tt.wantCustom)
+			}
+		})
+	}
+}
+
+func TestExportM2MFlag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name      string
+		configure func(*RouteConfig)
+		want      bool
+	}{
+		{
+			name: "default route is not m2m",
+		},
+		{
+			name: "m2m route is marked",
+			configure: func(route *RouteConfig) {
+				route.M2MRoute()
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := gin.New()
+			group := NewRouterGroup(engine, "/api")
+
+			routeConfig := group.GET("/resource", okHandler, "resource", 1)
+			if tt.configure != nil {
+				tt.configure(routeConfig)
+			}
+
+			route := group.Export("api", 123)
+			if len(route.Handlers) != 1 {
+				t.Fatalf("expected 1 handler, got %d", len(route.Handlers))
+			}
+			if route.Handlers[0].IsM2M == nil {
+				t.Fatal("expected IsM2M to be set")
+			}
+			if got := *route.Handlers[0].IsM2M; got != tt.want {
+				t.Errorf("IsM2M = %t, want %t", got, tt.want)
 			}
 		})
 	}
