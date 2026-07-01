@@ -3,6 +3,7 @@ package routekit
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -145,6 +146,87 @@ func TestExportM2MFlag(t *testing.T) {
 				t.Errorf("IsM2M = %t, want %t", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestExportIntegrationAndScopesMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name            string
+		configure       func(*RouteConfig)
+		wantIntegration bool
+		wantScopes      []string
+	}{
+		{
+			name:       "default route is not integration and has empty scopes",
+			wantScopes: []string{},
+		},
+		{
+			name: "integration route is marked without scopes",
+			configure: func(route *RouteConfig) {
+				route.IntegrationRoute()
+			},
+			wantIntegration: true,
+			wantScopes:      []string{},
+		},
+		{
+			name: "scoped route keeps integration false",
+			configure: func(route *RouteConfig) {
+				route.Scopes("scope:a", "scope:b")
+			},
+			wantScopes: []string{"scope:a", "scope:b"},
+		},
+		{
+			name: "integration route with scopes exports both",
+			configure: func(route *RouteConfig) {
+				route.IntegrationRoute().Scopes("scope:a")
+			},
+			wantIntegration: true,
+			wantScopes:      []string{"scope:a"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := gin.New()
+			group := NewRouterGroup(engine, "/api")
+			routeConfig := group.GET("/resource", okHandler, "resource", 1)
+			if tt.configure != nil {
+				tt.configure(routeConfig)
+			}
+			route := group.Export("api", 123)
+			if len(route.Handlers) != 1 {
+				t.Fatalf("expected 1 handler, got %d", len(route.Handlers))
+			}
+			handler := route.Handlers[0]
+			if handler.IsIntegration == nil {
+				t.Fatal("expected IsIntegration to be set")
+			}
+			if got := *handler.IsIntegration; got != tt.wantIntegration {
+				t.Errorf("IsIntegration = %t, want %t", got, tt.wantIntegration)
+			}
+			if handler.Scopes == nil {
+				t.Fatal("expected Scopes to be an empty slice, got nil")
+			}
+			if !slices.Equal(handler.Scopes, tt.wantScopes) {
+				t.Errorf("Scopes = %v, want %v", handler.Scopes, tt.wantScopes)
+			}
+		})
+	}
+}
+func TestScopesCopiesInputSlice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	group := NewRouterGroup(engine, "/api")
+	scopes := []string{"scope:a", "scope:b"}
+	group.GET("/resource", okHandler, "resource", 1).Scopes(scopes...)
+	scopes[0] = "scope:changed"
+	route := group.Export("api", 123)
+	if len(route.Handlers) != 1 {
+		t.Fatalf("expected 1 handler, got %d", len(route.Handlers))
+	}
+	want := []string{"scope:a", "scope:b"}
+	if !slices.Equal(route.Handlers[0].Scopes, want) {
+		t.Errorf("Scopes = %v, want %v", route.Handlers[0].Scopes, want)
 	}
 }
 

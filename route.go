@@ -41,6 +41,8 @@ type Handler struct {
 	IsBasic                   *bool
 	IsM2M                     *bool
 	IsSameApplicationRequired *bool
+	IsIntegration             *bool
+	Scopes                    []string
 }
 
 type RouteRegistrar interface {
