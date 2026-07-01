@@ -84,6 +84,8 @@ func (rg *RouterGroup) addRoute(method, path string, handler gin.HandlerFunc, de
 		IsM2M:                     boolPtr(false),
 		IsSameApplicationRequired: boolPtr(true),
 		RequiresClientContext:     boolPtr(false),
+		IsIntegration:             boolPtr(false),
+		Scopes:                    []string{},
 	}
 
 	rg.definitions = append(rg.definitions, def)
@@ -126,6 +128,16 @@ func (rc *RouteConfig) M2MRoute() *RouteConfig {
 
 func (rc *RouteConfig) AllowAnySessionApp() *RouteConfig {
 	rc.group.definitions[rc.index].IsSameApplicationRequired = boolPtr(false)
+	return rc
+}
+
+func (rc *RouteConfig) IntegrationRoute() *RouteConfig {
+	rc.group.definitions[rc.index].IsIntegration = boolPtr(true)
+	return rc
+}
+
+func (rc *RouteConfig) Scopes(scopes ...string) *RouteConfig {
+	rc.group.definitions[rc.index].Scopes = append([]string{}, scopes...)
 	return rc
 }
 
