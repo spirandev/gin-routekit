@@ -43,6 +43,7 @@ type Handler struct {
 	IsSameApplicationRequired *bool
 	IsIntegration             *bool
 	Scopes                    []string
+	Doc                       *DocConfig
 }
 
 type RouteRegistrar interface {

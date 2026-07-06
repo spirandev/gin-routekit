@@ -146,6 +146,126 @@ func (rc *RouteConfig) Use(middleware ...gin.HandlerFunc) *RouteConfig {
 	return rc
 }
 
+func (rc *RouteConfig) ensureDoc() *DocConfig {
+	def := &rc.group.definitions[rc.index]
+	if def.Doc == nil {
+		def.Doc = &DocConfig{}
+	}
+	return def.Doc
+}
+
+func (rc *RouteConfig) Document() *RouteConfig {
+	doc := rc.ensureDoc()
+	enabled := true
+	doc.Enabled = &enabled
+	return rc
+}
+
+func (rc *RouteConfig) HideFromDocs() *RouteConfig {
+	doc := rc.ensureDoc()
+	enabled := false
+	doc.Enabled = &enabled
+	return rc
+}
+
+func (rc *RouteConfig) Summary(value string) *RouteConfig {
+	rc.ensureDoc().Summary = value
+	return rc
+}
+
+func (rc *RouteConfig) Description(value string) *RouteConfig {
+	rc.ensureDoc().Description = value
+	return rc
+}
+
+func (rc *RouteConfig) OperationID(value string) *RouteConfig {
+	rc.ensureDoc().OperationID = value
+	return rc
+}
+
+func (rc *RouteConfig) Tags(tags ...string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Tags = append([]string{}, tags...)
+	return rc
+}
+
+func (rc *RouteConfig) DocProfile(names ...string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Profiles = append(doc.Profiles, names...)
+	return rc
+}
+
+func (rc *RouteConfig) Header(name, typ string, required bool, description string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Headers = append(doc.Headers, DocParam{
+		Name:        name,
+		In:          DocParamInHeader,
+		Type:        typ,
+		Required:    required,
+		Description: description,
+	})
+	return rc
+}
+
+func (rc *RouteConfig) Query(name, typ string, required bool, description string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.QueryParams = append(doc.QueryParams, DocParam{
+		Name:        name,
+		In:          DocParamInQuery,
+		Type:        typ,
+		Required:    required,
+		Description: description,
+	})
+	return rc
+}
+
+func (rc *RouteConfig) PathParam(name, typ string, required bool, description string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.PathParams = append(doc.PathParams, DocParam{
+		Name:        name,
+		In:          DocParamInPath,
+		Type:        typ,
+		Required:    required,
+		Description: description,
+	})
+	return rc
+}
+
+func (rc *RouteConfig) Body(schema any) *RouteConfig {
+	rc.ensureDoc().RequestBody = &DocBody{Schema: schema, Required: true}
+	return rc
+}
+
+func (rc *RouteConfig) BodyWith(description string, required bool, schema any) *RouteConfig {
+	rc.ensureDoc().RequestBody = &DocBody{
+		Description: description,
+		Required:    required,
+		Schema:      schema,
+	}
+	return rc
+}
+
+func (rc *RouteConfig) Response(status int, description string, schema any) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Responses = append(doc.Responses, DocResponse{
+		Status:      status,
+		Description: description,
+		Schema:      schema,
+	})
+	return rc
+}
+
+func (rc *RouteConfig) ResponseWith(status int, description string, contentType string, schema any) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Responses = append(doc.Responses, DocResponse{
+		Status:      status,
+		Description: description,
+		ContentType: contentType,
+		Schema:      schema,
+	})
+	return rc
+}
+
 func (rg *RouterGroup) Export(groupName string, appID int64) Route {
 	for _, def := range rg.definitions {
 		middlewares := []gin.HandlerFunc{
