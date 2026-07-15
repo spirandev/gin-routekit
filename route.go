@@ -46,12 +46,9 @@ type Handler struct {
 	IsIntegration             *bool
 	Scopes                    []string
 	Doc                       *DocConfig
-<<<<<<< Updated upstream
 	Contract                  *Contract
 	DocRemovals               docRemovals
 	MiddlewareMetadata        []MiddlewareMetadata
-=======
->>>>>>> Stashed changes
 }
 
 type RouteRegistrar interface {
