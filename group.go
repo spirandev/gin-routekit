@@ -153,7 +153,6 @@ func (rc *RouteConfig) Use(middleware ...gin.HandlerFunc) *RouteConfig {
 	return rc
 }
 
-<<<<<<< Updated upstream
 func (rc *RouteConfig) UseDocumented(middleware gin.HandlerFunc, metadata MiddlewareMetadata) *RouteConfig {
 	def := &rc.group.definitions[rc.index]
 	def.Middleware = append(def.Middleware, middleware)
@@ -161,8 +160,6 @@ func (rc *RouteConfig) UseDocumented(middleware gin.HandlerFunc, metadata Middle
 	return rc
 }
 
-=======
->>>>>>> Stashed changes
 func (rc *RouteConfig) ensureDoc() *DocConfig {
 	def := &rc.group.definitions[rc.index]
 	if def.Doc == nil {
@@ -212,7 +209,6 @@ func (rc *RouteConfig) DocProfile(names ...string) *RouteConfig {
 	return rc
 }
 
-<<<<<<< Updated upstream
 func (rc *RouteConfig) WithoutDocProfile(names ...string) *RouteConfig {
 	def := &rc.group.definitions[rc.index]
 	def.DocRemovals.Profiles = append(def.DocRemovals.Profiles, names...)
@@ -238,8 +234,6 @@ func (rc *RouteConfig) Contract(contract Contract) *RouteConfig {
 	return rc
 }
 
-=======
->>>>>>> Stashed changes
 func (rc *RouteConfig) Header(name, typ string, required bool, description string) *RouteConfig {
 	doc := rc.ensureDoc()
 	doc.Headers = append(doc.Headers, DocParam{
