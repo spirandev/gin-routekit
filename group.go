@@ -12,11 +12,12 @@ type RouteConfig struct {
 }
 
 type RouterGroup struct {
-	ginGroup    *gin.RouterGroup
-	basePath    string
-	definitions []Handler
-	middlewares []gin.HandlerFunc
-	options     GroupOptions
+	ginGroup                *gin.RouterGroup
+	basePath                string
+	definitions             []Handler
+	middlewares             []gin.HandlerFunc
+	groupMiddlewareMetadata []MiddlewareMetadata
+	options                 GroupOptions
 }
 
 func NewRouterGroup(engine *gin.Engine, path string, options ...GroupOption) *RouterGroup {
@@ -26,16 +27,22 @@ func NewRouterGroup(engine *gin.Engine, path string, options ...GroupOption) *Ro
 	}
 
 	return &RouterGroup{
-		ginGroup:    engine.Group(path),
-		basePath:    path,
-		definitions: []Handler{},
-		middlewares: []gin.HandlerFunc{},
-		options:     groupOptions,
+		ginGroup:                engine.Group(path),
+		basePath:                path,
+		definitions:             []Handler{},
+		middlewares:             []gin.HandlerFunc{},
+		groupMiddlewareMetadata: []MiddlewareMetadata{},
+		options:                 groupOptions,
 	}
 }
 
 func (rg *RouterGroup) Use(middleware ...gin.HandlerFunc) {
 	rg.middlewares = append(rg.middlewares, middleware...)
+}
+
+func (rg *RouterGroup) UseDocumented(middleware gin.HandlerFunc, metadata MiddlewareMetadata) {
+	rg.middlewares = append(rg.middlewares, middleware)
+	rg.groupMiddlewareMetadata = append(rg.groupMiddlewareMetadata, cloneMiddlewareMetadata(metadata))
 }
 
 func (rg *RouterGroup) GET(relativePath string, handler gin.HandlerFunc, description string, routeID int32) *RouteConfig {
@@ -146,6 +153,16 @@ func (rc *RouteConfig) Use(middleware ...gin.HandlerFunc) *RouteConfig {
 	return rc
 }
 
+<<<<<<< Updated upstream
+func (rc *RouteConfig) UseDocumented(middleware gin.HandlerFunc, metadata MiddlewareMetadata) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	def.Middleware = append(def.Middleware, middleware)
+	def.MiddlewareMetadata = append(def.MiddlewareMetadata, cloneMiddlewareMetadata(metadata))
+	return rc
+}
+
+=======
+>>>>>>> Stashed changes
 func (rc *RouteConfig) ensureDoc() *DocConfig {
 	def := &rc.group.definitions[rc.index]
 	if def.Doc == nil {
@@ -195,6 +212,34 @@ func (rc *RouteConfig) DocProfile(names ...string) *RouteConfig {
 	return rc
 }
 
+<<<<<<< Updated upstream
+func (rc *RouteConfig) WithoutDocProfile(names ...string) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	def.DocRemovals.Profiles = append(def.DocRemovals.Profiles, names...)
+	return rc
+}
+
+func (rc *RouteConfig) WithoutDefaultResponse(status ...int) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	def.DocRemovals.Responses = append(def.DocRemovals.Responses, status...)
+	return rc
+}
+
+func (rc *RouteConfig) WithoutDefaultParameter(in DocParamIn, name string) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	def.DocRemovals.Parameters = append(def.DocRemovals.Parameters, paramTombstone{In: in, Name: name})
+	return rc
+}
+
+func (rc *RouteConfig) Contract(contract Contract) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	cloned := cloneContract(&contract)
+	def.Contract = cloned
+	return rc
+}
+
+=======
+>>>>>>> Stashed changes
 func (rc *RouteConfig) Header(name, typ string, required bool, description string) *RouteConfig {
 	doc := rc.ensureDoc()
 	doc.Headers = append(doc.Headers, DocParam{
@@ -297,10 +342,12 @@ func (rg *RouterGroup) Export(groupName string, appID int64) Route {
 	}
 
 	return Route{
-		Path:          rg.basePath,
-		Handlers:      rg.definitions,
-		Group:         groupName,
-		ApplicationID: appID,
+		Path:                    rg.basePath,
+		Handlers:                cloneHandlers(rg.definitions),
+		Group:                   groupName,
+		ApplicationID:           appID,
+		DocumentationDefaults:   cloneDocumentationDefaults(rg.options.documentationDefaults),
+		GroupMiddlewareMetadata: cloneMiddlewareMetadataSlice(rg.groupMiddlewareMetadata),
 	}
 }
 

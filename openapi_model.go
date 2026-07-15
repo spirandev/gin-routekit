@@ -107,6 +107,14 @@ type OpenAPISecurityScheme struct {
 
 type OpenAPISecurityRequirement map[string][]string
 
+type DocumentationMode string
+
+const (
+	DocumentationModeUnspecified DocumentationMode = ""
+	DocumentAll                  DocumentationMode = "all"
+	DocumentOptIn                DocumentationMode = "opt-in"
+)
+
 type OpenAPIConfig struct {
 	Title       string
 	Version     string
@@ -114,6 +122,10 @@ type OpenAPIConfig struct {
 	Servers     []OpenAPIServer
 	JSONPath    string
 
+	DocumentationMode DocumentationMode
+	Defaults          DocumentationDefaults
+
+	// Deprecated: use DocumentationMode.
 	EnabledByDefault bool
 	RouteDecorators  []RouteDocDecorator
 	Profiles         map[string]DocProfile

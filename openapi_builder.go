@@ -18,6 +18,9 @@ func BuildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, error
 	if config.Title == "" || config.Version == "" {
 		return nil, errors.New("OpenAPIConfig.Title and OpenAPIConfig.Version are required")
 	}
+	if err := validateDocumentationMode(config.DocumentationMode); err != nil {
+		return nil, err
+	}
 
 	reflector := newSchemaReflector()
 
@@ -41,17 +44,18 @@ func BuildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, error
 
 	for _, route := range routes {
 		for _, h := range route.Handlers {
-			if !isDocumented(config.EnabledByDefault, h.Doc) {
+			resolved, err := resolveRouteDocumentation(config, route, h)
+			if err != nil {
+				return nil, fmt.Errorf("route %s %s: %w", h.Method, h.Path, err)
+			}
+			if !resolved.Enabled {
 				continue
 			}
 			if err := validateMethod(h.Method); err != nil {
 				return nil, fmt.Errorf("route %s %s: %w", h.Method, h.Path, err)
 			}
 
-			operation := buildOperation(route, h, config, reflector)
-			if err := applyProfiles(config, h, operation); err != nil {
-				return nil, fmt.Errorf("route %s %s: %w", h.Method, h.Path, err)
-			}
+			operation := buildOperation(route, h, resolved, reflector)
 
 			if err := runDecorators(config, route, h, operation); err != nil {
 				return nil, fmt.Errorf("route %s %s: %w", h.Method, h.Path, err)
@@ -59,7 +63,8 @@ func BuildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, error
 
 			addAutoPathParams(operation, route, h)
 
-			if opErr := validateOperation(operation); opErr != nil {
+			pathKey := ginPathToOpenAPI(route.Path + h.RelativePath)
+			if opErr := validateOperation(config, operation, pathKey); opErr != nil {
 				return nil, fmt.Errorf("route %s %s: %w", h.Method, h.Path, opErr)
 			}
 			if err := resolveOperationID(operation, route, h.Method, h.Path, operationIDs); err != nil {
@@ -70,7 +75,6 @@ func BuildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, error
 
 			registerTags(operation, tagOrder, &nextTagOrder)
 
-			pathKey := ginPathToOpenAPI(route.Path + h.RelativePath)
 			item := doc.Paths[pathKey]
 			if err := setMethod(&item, h.Method, operation); err != nil {
 				return nil, fmt.Errorf("route %s %s: %w", h.Method, h.Path, err)
@@ -81,6 +85,7 @@ func BuildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, error
 
 	doc.Tags = buildTagList(tagOrder)
 
+	reflector.rewriteRenamedRefs()
 	components := buildComponents(config, &reflector.named)
 	if components != nil {
 		doc.Components = components
@@ -89,14 +94,13 @@ func BuildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, error
 	return doc, nil
 }
 
-func isDocumented(enabledByDefault bool, doc *DocConfig) bool {
-	if doc == nil {
-		return enabledByDefault
+func validateDocumentationMode(mode DocumentationMode) error {
+	switch mode {
+	case DocumentationModeUnspecified, DocumentAll, DocumentOptIn:
+		return nil
+	default:
+		return fmt.Errorf("unknown DocumentationMode %q", mode)
 	}
-	if doc.Enabled != nil {
-		return *doc.Enabled
-	}
-	return enabledByDefault
 }
 
 func validateMethod(method string) error {
@@ -110,50 +114,25 @@ func validateMethod(method string) error {
 	return nil
 }
 
-func buildOperation(route Route, h Handler, _ OpenAPIConfig, reflector *schemaReflector) *OpenAPIOperation {
-	tags := []string{route.Group}
-	if h.Doc != nil && len(h.Doc.Tags) > 0 {
-		tags = append([]string{}, h.Doc.Tags...)
-	}
-	summary := h.Definition
-	description := ""
-	if h.Doc != nil {
-		if h.Doc.Summary != "" {
-			summary = h.Doc.Summary
-		}
-		if h.Doc.Description != "" {
-			description = h.Doc.Description
-		}
-	}
-
+func buildOperation(_ Route, _ Handler, resolved *resolvedDocumentation, reflector *schemaReflector) *OpenAPIOperation {
 	op := &OpenAPIOperation{
-		Tags:        tags,
-		Summary:     summary,
-		Description: description,
-		OperationID: "",
+		Tags:        append([]string(nil), resolved.Tags...),
+		Summary:     resolved.Summary,
+		Description: resolved.Description,
+		OperationID: resolved.OperationID,
 		Responses:   OpenAPIResponses{},
 	}
-	if h.Doc != nil && h.Doc.OperationID != "" {
-		op.OperationID = h.Doc.OperationID
+	for _, p := range resolved.Parameters {
+		op.AddParameter(docParamToOpenAPIParameter(p))
 	}
-
-	if h.Doc != nil {
-		for _, p := range h.Doc.Headers {
-			op.AddParameter(docParamToOpenAPIParameter(p))
-		}
-		for _, p := range h.Doc.QueryParams {
-			op.AddParameter(docParamToOpenAPIParameter(p))
-		}
-		for _, p := range h.Doc.PathParams {
-			op.AddParameter(docParamToOpenAPIParameter(p))
-		}
-
-		if h.Doc.RequestBody != nil {
-			op.RequestBody = buildRequestBody(h.Doc.RequestBody, reflector)
-		}
-		for _, resp := range h.Doc.Responses {
-			op.Responses[statusLabel(resp.Status)] = buildResponse(resp, reflector)
-		}
+	if resolved.RequestBody != nil {
+		op.RequestBody = buildRequestBody(resolved.RequestBody, resolved.RequestContentType, reflector)
+	}
+	for _, resp := range resolved.Responses {
+		op.Responses[statusLabel(resp.Status)] = buildResponse(resp, resolved.ResponseContentType, reflector)
+	}
+	for _, requirement := range resolved.Security {
+		op.AddSecurityRequirementFromMap(requirement)
 	}
 
 	return op
@@ -173,16 +152,23 @@ func docParamToOpenAPIParameter(p DocParam) OpenAPIParameter {
 	}
 }
 
-func buildRequestBody(body *DocBody, reflector *schemaReflector) *OpenAPIRequestBody {
+func buildRequestBody(body *DocBody, defaultContentType string, reflector *schemaReflector) *OpenAPIRequestBody {
 	contentType := body.ContentType
 	if contentType == "" {
+		contentType = defaultContentType
+	}
+	if body.Schema != nil && contentType == "" {
 		contentType = "application/json"
 	}
 	content := map[string]OpenAPIMediaType{}
-	if body.Schema != nil {
+	if schema, descriptorExample := reflector.schemaFromInput(body.Schema); schema != nil {
+		example := body.Example
+		if example == nil {
+			example = descriptorExample
+		}
 		content[contentType] = OpenAPIMediaType{
-			Schema:  reflector.schemaFromValue(body.Schema),
-			Example: body.Example,
+			Schema:  schema,
+			Example: example,
 		}
 	}
 	return &OpenAPIRequestBody{
@@ -192,9 +178,13 @@ func buildRequestBody(body *DocBody, reflector *schemaReflector) *OpenAPIRequest
 	}
 }
 
-func buildResponse(resp DocResponse, reflector *schemaReflector) OpenAPIResponse {
-	hasSchema := resp.Schema != nil
+func buildResponse(resp DocResponse, defaultContentType string, reflector *schemaReflector) OpenAPIResponse {
+	schema, descriptorExample := reflector.schemaFromInput(resp.Schema)
+	hasSchema := schema != nil
 	contentType := resp.ContentType
+	if contentType == "" {
+		contentType = defaultContentType
+	}
 	if hasSchema && contentType == "" {
 		contentType = "application/json"
 	}
@@ -203,37 +193,16 @@ func buildResponse(resp DocResponse, reflector *schemaReflector) OpenAPIResponse
 		if r.Content == nil {
 			r.Content = map[string]OpenAPIMediaType{}
 		}
+		example := resp.Example
+		if example == nil {
+			example = descriptorExample
+		}
 		r.Content[contentType] = OpenAPIMediaType{
-			Schema:  reflector.schemaFromValue(resp.Schema),
-			Example: resp.Example,
+			Schema:  schema,
+			Example: example,
 		}
 	}
 	return r
-}
-
-func applyProfiles(config OpenAPIConfig, h Handler, op *OpenAPIOperation) error {
-	if h.Doc == nil {
-		return nil
-	}
-	for _, name := range h.Doc.Profiles {
-		profile, ok := config.Profiles[name]
-		if !ok {
-			return fmt.Errorf("profile %q not found in OpenAPIConfig.Profiles", name)
-		}
-		for _, p := range profile.Headers {
-			op.AddParameter(docParamToOpenAPIParameter(p))
-		}
-		for _, p := range profile.QueryParams {
-			op.AddParameter(docParamToOpenAPIParameter(p))
-		}
-		for _, p := range profile.PathParams {
-			op.AddParameter(docParamToOpenAPIParameter(p))
-		}
-		for _, s := range profile.Security {
-			op.AddSecurity(s)
-		}
-	}
-	return nil
 }
 
 func runDecorators(config OpenAPIConfig, route Route, h Handler, op *OpenAPIOperation) error {
@@ -365,7 +334,7 @@ func sanitizePathIdentifier(path string) string {
 	return out
 }
 
-func validateOperation(op *OpenAPIOperation) error {
+func validateOperation(config OpenAPIConfig, op *OpenAPIOperation, pathKey string) error {
 	if len(op.paramConflict) > 0 {
 		keys := make([]string, len(op.paramConflict))
 		for i, k := range op.paramConflict {
@@ -373,7 +342,99 @@ func validateOperation(op *OpenAPIOperation) error {
 		}
 		return fmt.Errorf("conflicting parameter definitions for: %s", strings.Join(keys, ", "))
 	}
+	pathParams := map[string]bool{}
+	for _, name := range openAPIPathParamNames(pathKey) {
+		pathParams[name] = true
+	}
+	declaredPathParams := map[string]bool{}
+	for _, param := range op.Parameters {
+		if err := validateOpenAPIParameter(param); err != nil {
+			return err
+		}
+		if param.In != string(DocParamInPath) {
+			continue
+		}
+		if !param.Required {
+			return fmt.Errorf("path parameter %q must be required", param.Name)
+		}
+		if !pathParams[param.Name] {
+			return fmt.Errorf("path parameter %q is not present in path %q", param.Name, pathKey)
+		}
+		declaredPathParams[param.Name] = true
+	}
+	for name := range pathParams {
+		if !declaredPathParams[name] {
+			return fmt.Errorf("path placeholder %q has no matching parameter", name)
+		}
+	}
+	for status := range op.Responses {
+		if !validStatusLabel(status) {
+			return fmt.Errorf("invalid response status %q", status)
+		}
+	}
+	for _, requirement := range op.Security {
+		if len(requirement) == 0 {
+			return errors.New("security requirement must contain at least one scheme")
+		}
+		for name := range requirement {
+			if len(config.Components.SecuritySchemes) > 0 && config.Components.SecuritySchemes[name] == nil {
+				return fmt.Errorf("security scheme %q is not defined in OpenAPIConfig.Components.SecuritySchemes", name)
+			}
+		}
+	}
 	return nil
+}
+
+func validateOpenAPIParameter(param OpenAPIParameter) error {
+	switch DocParamIn(param.In) {
+	case DocParamInHeader, DocParamInPath, DocParamInQuery:
+	default:
+		return fmt.Errorf("unknown parameter location %q for %q", param.In, param.Name)
+	}
+	if param.Schema == nil {
+		return fmt.Errorf("parameter %q in %s must define a schema", param.Name, param.In)
+	}
+	if param.Schema.Ref == "" && param.Schema.Type == "" {
+		return fmt.Errorf("parameter %q in %s must define a schema type", param.Name, param.In)
+	}
+	if param.Schema.Type != "" && !validOpenAPIPrimitiveType(param.Schema.Type) {
+		return fmt.Errorf("parameter %q in %s has invalid schema type %q", param.Name, param.In, param.Schema.Type)
+	}
+	return nil
+}
+
+func validOpenAPIPrimitiveType(typ string) bool {
+	switch typ {
+	case "string", "number", "integer", "boolean", "array", "object":
+		return true
+	default:
+		return false
+	}
+}
+
+func validStatusLabel(status string) bool {
+	if len(status) != 3 {
+		return false
+	}
+	code := 0
+	for _, r := range status {
+		if r < '0' || r > '9' {
+			return false
+		}
+		code = code*10 + int(r-'0')
+	}
+	return code >= 100 && code <= 599
+}
+
+var openAPIPathParamRe = regexp.MustCompile(`\{([^}/]+)\}`)
+
+func openAPIPathParamNames(path string) []string {
+	matches := openAPIPathParamRe.FindAllStringSubmatch(path, -1)
+	names := make([]string, 0, len(matches))
+	for _, match := range matches {
+		names = append(names, match[1])
+	}
+	return names
 }
 
 func ensureDefaultResponse(op *OpenAPIOperation) {
@@ -414,20 +475,44 @@ func buildTagList(order map[string]int) []OpenAPITag {
 func setMethod(item *OpenAPIPathItem, method string, op *OpenAPIOperation) error {
 	switch method {
 	case http.MethodGet:
+		if item.Get != nil {
+			return fmt.Errorf("duplicate operation for method %s", method)
+		}
 		item.Get = op
 	case http.MethodHead:
+		if item.Head != nil {
+			return fmt.Errorf("duplicate operation for method %s", method)
+		}
 		item.Head = op
 	case http.MethodPost:
+		if item.Post != nil {
+			return fmt.Errorf("duplicate operation for method %s", method)
+		}
 		item.Post = op
 	case http.MethodPut:
+		if item.Put != nil {
+			return fmt.Errorf("duplicate operation for method %s", method)
+		}
 		item.Put = op
 	case http.MethodPatch:
+		if item.Patch != nil {
+			return fmt.Errorf("duplicate operation for method %s", method)
+		}
 		item.Patch = op
 	case http.MethodDelete:
+		if item.Delete != nil {
+			return fmt.Errorf("duplicate operation for method %s", method)
+		}
 		item.Delete = op
 	case http.MethodOptions:
+		if item.Options != nil {
+			return fmt.Errorf("duplicate operation for method %s", method)
+		}
 		item.Options = op
 	case http.MethodTrace:
+		if item.Trace != nil {
+			return fmt.Errorf("duplicate operation for method %s", method)
+		}
 		item.Trace = op
 	default:
 		return fmt.Errorf("unsupported method %q for PathItem", method)
@@ -449,19 +534,23 @@ func buildComponents(config OpenAPIConfig, named *map[string]*OpenAPISchema) *Op
 	if hasSchemas {
 		comp.Schemas = map[string]*OpenAPISchema{}
 		for name, s := range schemaNames {
-			comp.Schemas[name] = s
+			comp.Schemas[name] = cloneOpenAPISchema(s)
 		}
 		for name, s := range *named {
 			if existing, ok := comp.Schemas[name]; ok && existing != nil {
 				continue
 			}
-			comp.Schemas[name] = s
+			comp.Schemas[name] = cloneOpenAPISchema(s)
 		}
 	}
 	if hasSchemes {
 		comp.SecuritySchemes = map[string]*OpenAPISecurityScheme{}
 		for name, s := range schemes {
-			comp.SecuritySchemes[name] = s
+			if s == nil {
+				continue
+			}
+			cloned := *s
+			comp.SecuritySchemes[name] = &cloned
 		}
 	}
 	return comp

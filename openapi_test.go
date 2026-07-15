@@ -233,8 +233,7 @@ func TestManualParamsAppearInOpenAPI(t *testing.T) {
 	group := newGroup(t, engine, "/api", "api", 123)
 	group.group.GET("/items", okHandler, "list", 1).Document().
 		Header("X-Token", "string", true, "auth token").
-		Query("q", "string", false, "search").
-		PathParam("ignored", "string", true, "")
+		Query("q", "string", false, "search")
 	_ = group
 
 	ar := newTestEngine(t, group)

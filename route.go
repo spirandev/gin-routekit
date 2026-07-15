@@ -19,12 +19,14 @@ var ValidMethods = map[string]struct{}{
 }
 
 type Route struct {
-	Path          string
-	Handlers      []Handler
-	Middleware    []gin.HandlerFunc
-	Definition    string
-	Group         string
-	ApplicationID int64
+	Path                    string
+	Handlers                []Handler
+	Middleware              []gin.HandlerFunc
+	Definition              string
+	Group                   string
+	ApplicationID           int64
+	DocumentationDefaults   DocumentationDefaults
+	GroupMiddlewareMetadata []MiddlewareMetadata
 }
 
 type Handler struct {
@@ -44,6 +46,12 @@ type Handler struct {
 	IsIntegration             *bool
 	Scopes                    []string
 	Doc                       *DocConfig
+<<<<<<< Updated upstream
+	Contract                  *Contract
+	DocRemovals               docRemovals
+	MiddlewareMetadata        []MiddlewareMetadata
+=======
+>>>>>>> Stashed changes
 }
 
 type RouteRegistrar interface {

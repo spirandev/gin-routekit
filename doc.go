@@ -1,5 +1,7 @@
 package routekit
 
+import "reflect"
+
 type DocParamIn string
 
 const (
@@ -55,4 +57,49 @@ type DocProfile struct {
 	QueryParams []DocParam
 	PathParams  []DocParam
 	Security    []string
+}
+
+type SchemaDescriptor struct {
+	Type    reflect.Type
+	Example any
+}
+
+func SchemaOf[T any]() SchemaDescriptor {
+	return SchemaDescriptor{Type: reflect.TypeOf((*T)(nil)).Elem()}
+}
+
+func SchemaWithExample[T any](example T) SchemaDescriptor {
+	return SchemaDescriptor{
+		Type:    reflect.TypeOf((*T)(nil)).Elem(),
+		Example: example,
+	}
+}
+
+type DocumentationDefaults struct {
+	Enabled             *bool
+	Profiles            []string
+	Headers             []DocParam
+	PathParams          []DocParam
+	QueryParams         []DocParam
+	Responses           []DocResponse
+	RequestContentType  string
+	ResponseContentType string
+}
+
+type MiddlewareMetadata struct {
+	Profiles   []string
+	Parameters []DocParam
+	Responses  []DocResponse
+	Security   []OpenAPISecurityRequirement
+}
+
+type docRemovals struct {
+	Profiles   []string
+	Responses  []int
+	Parameters []paramTombstone
+}
+
+type paramTombstone struct {
+	In   DocParamIn
+	Name string
 }

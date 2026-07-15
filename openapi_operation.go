@@ -1,6 +1,9 @@
 package routekit
 
-import "reflect"
+import (
+	"reflect"
+	"strings"
+)
 
 type paramKey struct {
 	name string
@@ -51,8 +54,9 @@ func (op *OpenAPIOperation) AddPathParam(name, typ string, description string) {
 // is returned via the error channel of the builder; here we keep the first
 // definition to avoid silent overwrites during decorator execution.
 func (op *OpenAPIOperation) AddParameter(param OpenAPIParameter) {
+	newKey := openAPIParamKey(param)
 	for _, existing := range op.Parameters {
-		if existing.Name == param.Name && existing.In == param.In {
+		if openAPIParamKey(existing) == newKey {
 			if paramsEqual(existing, param) {
 				return
 			}
@@ -64,23 +68,47 @@ func (op *OpenAPIOperation) AddParameter(param OpenAPIParameter) {
 }
 
 func (op *OpenAPIOperation) AddSecurity(name string) {
+	op.AddSecurityRequirement(name)
+}
+
+func (op *OpenAPIOperation) AddSecurityRequirement(names ...string) {
+	requirement := OpenAPISecurityRequirement{}
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		requirement[name] = []string{}
+	}
+	op.AddSecurityRequirementFromMap(requirement)
+}
+
+func (op *OpenAPIOperation) AddSecurityRequirementFromMap(requirement OpenAPISecurityRequirement) {
+	if len(requirement) == 0 {
+		if op.Security == nil {
+			op.Security = []OpenAPISecurityRequirement{}
+		}
+		op.Security = append(op.Security, OpenAPISecurityRequirement{})
+		return
+	}
+	requirement = cloneSecurityRequirement(requirement)
 	if op.Security == nil {
 		op.Security = []OpenAPISecurityRequirement{}
 	}
-	for _, req := range op.Security {
-		if _, ok := req[name]; ok {
+	for _, existing := range op.Security {
+		if valuesEqual(existing, requirement) {
 			return
 		}
 	}
-	op.Security = append(op.Security, OpenAPISecurityRequirement{name: {}})
+	op.Security = append(op.Security, requirement)
 }
 
 func (op *OpenAPIOperation) AddResponse(status int, description string, schema any) {
 	content := map[string]OpenAPIMediaType{}
 	if schema != nil {
 		reflector := newInlineSchemaReflector()
+		schema, _ := reflector.schemaFromInput(schema)
 		content["application/json"] = OpenAPIMediaType{
-			Schema: reflector.schemaFromValue(schema),
+			Schema: schema,
 		}
 	}
 	if op.Responses == nil {
@@ -93,7 +121,7 @@ func (op *OpenAPIOperation) AddResponse(status int, description string, schema a
 }
 
 func paramsEqual(a, b OpenAPIParameter) bool {
-	if a.Name != b.Name || a.In != b.In || a.Description != b.Description || a.Required != b.Required {
+	if openAPIParamKey(a) != openAPIParamKey(b) || a.Description != b.Description || a.Required != b.Required {
 		return false
 	}
 	if (a.Schema == nil) != (b.Schema == nil) {
@@ -108,6 +136,14 @@ func paramsEqual(a, b OpenAPIParameter) bool {
 		return false
 	}
 	return true
+}
+
+func openAPIParamKey(param OpenAPIParameter) paramKey {
+	name := param.Name
+	if param.In == string(DocParamInHeader) {
+		name = strings.ToLower(name)
+	}
+	return paramKey{name: name, in: param.In}
 }
 
 func valuesEqual(a, b any) bool {

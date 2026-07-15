@@ -9,12 +9,14 @@ func cloneRoutes(routes []Route) []Route {
 	cloned := make([]Route, len(routes))
 	for i, route := range routes {
 		cloned[i] = Route{
-			Path:          route.Path,
-			Definition:    route.Definition,
-			Group:         route.Group,
-			ApplicationID: route.ApplicationID,
-			Handlers:      cloneHandlers(route.Handlers),
-			Middleware:    append([]gin.HandlerFunc(nil), route.Middleware...),
+			Path:                    route.Path,
+			Definition:              route.Definition,
+			Group:                   route.Group,
+			ApplicationID:           route.ApplicationID,
+			Handlers:                cloneHandlers(route.Handlers),
+			Middleware:              append([]gin.HandlerFunc(nil), route.Middleware...),
+			DocumentationDefaults:   cloneDocumentationDefaults(route.DocumentationDefaults),
+			GroupMiddlewareMetadata: cloneMiddlewareMetadataSlice(route.GroupMiddlewareMetadata),
 		}
 	}
 	return cloned
@@ -26,6 +28,10 @@ func cloneHandlers(handlers []Handler) []Handler {
 	}
 	cloned := make([]Handler, len(handlers))
 	for i, h := range handlers {
+		scopes := append([]string(nil), h.Scopes...)
+		if h.Scopes != nil && scopes == nil {
+			scopes = []string{}
+		}
 		cloned[i] = Handler{
 			Handler:                   h.Handler,
 			Middleware:                append([]gin.HandlerFunc(nil), h.Middleware...),
@@ -34,15 +40,18 @@ func cloneHandlers(handlers []Handler) []Handler {
 			Definition:                h.Definition,
 			RouteId:                   h.RouteId,
 			RelativePath:              h.RelativePath,
-			IsAuthentication:          h.IsAuthentication,
-			IsAuthorization:           h.IsAuthorization,
-			RequiresClientContext:     h.RequiresClientContext,
-			IsBasic:                   h.IsBasic,
-			IsM2M:                     h.IsM2M,
-			IsSameApplicationRequired: h.IsSameApplicationRequired,
-			IsIntegration:             h.IsIntegration,
-			Scopes:                    append([]string(nil), h.Scopes...),
+			IsAuthentication:          cloneBoolPtr(h.IsAuthentication),
+			IsAuthorization:           cloneBoolPtr(h.IsAuthorization),
+			RequiresClientContext:     cloneBoolPtr(h.RequiresClientContext),
+			IsBasic:                   cloneBoolPtr(h.IsBasic),
+			IsM2M:                     cloneBoolPtr(h.IsM2M),
+			IsSameApplicationRequired: cloneBoolPtr(h.IsSameApplicationRequired),
+			IsIntegration:             cloneBoolPtr(h.IsIntegration),
+			Scopes:                    scopes,
 			Doc:                       cloneDocConfig(h.Doc),
+			Contract:                  cloneContract(h.Contract),
+			DocRemovals:               cloneDocRemovals(h.DocRemovals),
+			MiddlewareMetadata:        cloneMiddlewareMetadataSlice(h.MiddlewareMetadata),
 		}
 	}
 	return cloned
@@ -59,13 +68,6 @@ func cloneDocConfig(doc *DocConfig) *DocConfig {
 		enabled = &v
 	}
 
-	headers := make([]DocParam, len(doc.Headers))
-	copy(headers, doc.Headers)
-	pathParams := make([]DocParam, len(doc.PathParams))
-	copy(pathParams, doc.PathParams)
-	queryParams := make([]DocParam, len(doc.QueryParams))
-	copy(queryParams, doc.QueryParams)
-
 	cloned := &DocConfig{
 		Enabled:     enabled,
 		Summary:     doc.Summary,
@@ -73,23 +75,217 @@ func cloneDocConfig(doc *DocConfig) *DocConfig {
 		Tags:        append([]string(nil), doc.Tags...),
 		OperationID: doc.OperationID,
 		Profiles:    append([]string(nil), doc.Profiles...),
-		Headers:     headers,
-		PathParams:  pathParams,
-		QueryParams: queryParams,
+		Headers:     cloneDocParams(doc.Headers),
+		PathParams:  cloneDocParams(doc.PathParams),
+		QueryParams: cloneDocParams(doc.QueryParams),
 	}
 
 	if doc.RequestBody != nil {
-		cloned.RequestBody = &DocBody{
-			Description: doc.RequestBody.Description,
-			Required:    doc.RequestBody.Required,
-			Schema:      doc.RequestBody.Schema,
-			ContentType: doc.RequestBody.ContentType,
-			Example:     doc.RequestBody.Example,
-		}
+		cloned.RequestBody = cloneDocBody(doc.RequestBody)
 	}
 
-	cloned.Responses = make([]DocResponse, len(doc.Responses))
-	copy(cloned.Responses, doc.Responses)
+	cloned.Responses = cloneDocResponses(doc.Responses)
 
 	return cloned
+}
+
+func cloneBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
+}
+
+func cloneDocParam(param DocParam) DocParam {
+	param.Example = cloneAny(param.Example)
+	return param
+}
+
+func cloneDocParams(params []DocParam) []DocParam {
+	if params == nil {
+		return nil
+	}
+	cloned := make([]DocParam, len(params))
+	for i, param := range params {
+		cloned[i] = cloneDocParam(param)
+	}
+	return cloned
+}
+
+func cloneDocBody(body *DocBody) *DocBody {
+	if body == nil {
+		return nil
+	}
+	return &DocBody{
+		Description: body.Description,
+		Required:    body.Required,
+		Schema:      cloneSchemaInput(body.Schema),
+		ContentType: body.ContentType,
+		Example:     cloneAny(body.Example),
+	}
+}
+
+func cloneDocResponse(response DocResponse) DocResponse {
+	response.Schema = cloneSchemaInput(response.Schema)
+	response.Example = cloneAny(response.Example)
+	return response
+}
+
+func cloneDocResponses(responses []DocResponse) []DocResponse {
+	if responses == nil {
+		return nil
+	}
+	cloned := make([]DocResponse, len(responses))
+	for i, response := range responses {
+		cloned[i] = cloneDocResponse(response)
+	}
+	return cloned
+}
+
+func cloneContract(contract *Contract) *Contract {
+	if contract == nil {
+		return nil
+	}
+	return &Contract{
+		Profiles:    append([]string(nil), contract.Profiles...),
+		Parameters:  cloneDocParams(contract.Parameters),
+		RequestBody: cloneDocBody(contract.RequestBody),
+		Responses:   cloneDocResponses(contract.Responses),
+	}
+}
+
+func cloneDocumentationDefaults(defaults DocumentationDefaults) DocumentationDefaults {
+	return DocumentationDefaults{
+		Enabled:             cloneBoolPtr(defaults.Enabled),
+		Profiles:            append([]string(nil), defaults.Profiles...),
+		Headers:             cloneDocParams(defaults.Headers),
+		PathParams:          cloneDocParams(defaults.PathParams),
+		QueryParams:         cloneDocParams(defaults.QueryParams),
+		Responses:           cloneDocResponses(defaults.Responses),
+		RequestContentType:  defaults.RequestContentType,
+		ResponseContentType: defaults.ResponseContentType,
+	}
+}
+
+func cloneMiddlewareMetadata(metadata MiddlewareMetadata) MiddlewareMetadata {
+	return MiddlewareMetadata{
+		Profiles:   append([]string(nil), metadata.Profiles...),
+		Parameters: cloneDocParams(metadata.Parameters),
+		Responses:  cloneDocResponses(metadata.Responses),
+		Security:   cloneSecurityRequirements(metadata.Security),
+	}
+}
+
+func cloneMiddlewareMetadataSlice(metadata []MiddlewareMetadata) []MiddlewareMetadata {
+	if metadata == nil {
+		return nil
+	}
+	cloned := make([]MiddlewareMetadata, len(metadata))
+	for i, item := range metadata {
+		cloned[i] = cloneMiddlewareMetadata(item)
+	}
+	return cloned
+}
+
+func cloneSecurityRequirement(requirement OpenAPISecurityRequirement) OpenAPISecurityRequirement {
+	if requirement == nil {
+		return nil
+	}
+	cloned := OpenAPISecurityRequirement{}
+	for name, scopes := range requirement {
+		cloned[name] = append([]string(nil), scopes...)
+	}
+	return cloned
+}
+
+func cloneSecurityRequirements(requirements []OpenAPISecurityRequirement) []OpenAPISecurityRequirement {
+	if requirements == nil {
+		return nil
+	}
+	cloned := make([]OpenAPISecurityRequirement, len(requirements))
+	for i, requirement := range requirements {
+		cloned[i] = cloneSecurityRequirement(requirement)
+	}
+	return cloned
+}
+
+func cloneDocRemovals(removals docRemovals) docRemovals {
+	return docRemovals{
+		Profiles:   append([]string(nil), removals.Profiles...),
+		Responses:  append([]int(nil), removals.Responses...),
+		Parameters: append([]paramTombstone(nil), removals.Parameters...),
+	}
+}
+
+func cloneSchemaInput(schema any) any {
+	switch v := schema.(type) {
+	case *OpenAPISchema:
+		return cloneOpenAPISchema(v)
+	case OpenAPISchema:
+		cloned := cloneOpenAPISchema(&v)
+		if cloned == nil {
+			return OpenAPISchema{}
+		}
+		return *cloned
+	case SchemaDescriptor:
+		v.Example = cloneAny(v.Example)
+		return v
+	case *SchemaDescriptor:
+		if v == nil {
+			return (*SchemaDescriptor)(nil)
+		}
+		cloned := *v
+		cloned.Example = cloneAny(cloned.Example)
+		return &cloned
+	default:
+		return schema
+	}
+}
+
+func cloneOpenAPISchema(schema *OpenAPISchema) *OpenAPISchema {
+	if schema == nil {
+		return nil
+	}
+	cloned := *schema
+	cloned.Items = cloneOpenAPISchema(schema.Items)
+	cloned.Required = append([]string(nil), schema.Required...)
+	if schema.Properties != nil {
+		cloned.Properties = make(map[string]OpenAPISchema, len(schema.Properties))
+		for name, property := range schema.Properties {
+			propertyCopy := cloneOpenAPISchema(&property)
+			if propertyCopy != nil {
+				cloned.Properties[name] = *propertyCopy
+			}
+		}
+	}
+	cloned.AdditionalProperties = cloneOpenAPISchema(schema.AdditionalProperties)
+	return &cloned
+}
+
+func cloneAny(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(v))
+		for key, item := range v {
+			cloned[key] = cloneAny(item)
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, len(v))
+		for i, item := range v {
+			cloned[i] = cloneAny(item)
+		}
+		return cloned
+	case []string:
+		return append([]string(nil), v...)
+	case map[string]string:
+		cloned := make(map[string]string, len(v))
+		for key, item := range v {
+			cloned[key] = item
+		}
+		return cloned
+	default:
+		return value
+	}
 }
