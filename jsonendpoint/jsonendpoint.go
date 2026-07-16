@@ -4,7 +4,6 @@ package jsonendpoint
 
 import (
 	"bytes"
-	"encoding"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +13,6 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	routekit "github.com/spirandev/gin-routekit"
@@ -26,16 +24,10 @@ var (
 	// ErrResponseAlreadyWritten is recorded on the Gin context in strict mode
 	// when a typed handler writes its own response.
 	ErrResponseAlreadyWritten = errors.New("typed handler wrote directly to the response writer")
-	// ErrNilResponse is recorded when a nil slice or map cannot match its
-	// non-nullable response schema.
-	ErrNilResponse      = errors.New("typed handler returned a nil JSON response")
-	jsonMarshalerType   = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
-	jsonUnmarshalerType = reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()
-	textMarshalerType   = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
-	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
-	timeType            = reflect.TypeOf(time.Time{})
-	rawMessageType      = reflect.TypeOf(json.RawMessage{})
-	jsonNumberType      = reflect.TypeOf(json.Number(""))
+	// ErrNilResponse is retained for source compatibility. Nil JSON values now
+	// follow encoding/json and serialize as null.
+	// Deprecated: nil JSON responses are valid.
+	ErrNilResponse = errors.New("typed handler returned a nil JSON response")
 )
 
 type Handler[Request, Response any] func(*gin.Context, Request) (Response, error)
@@ -184,16 +176,6 @@ func Handle[Request, Response any](
 			context.Status(config.successStatus)
 			return
 		}
-		if isNilJSONValue(response) {
-			_ = context.Error(ErrNilResponse)
-			handlerErrors.respond(context)
-			return
-		}
-		if err := validateJSONResponseValue(reflect.ValueOf(response), responseType, false, map[visit]bool{}); err != nil {
-			_ = context.Error(fmt.Errorf("validate typed response: %w", err))
-			handlerErrors.respond(context)
-			return
-		}
 		context.Header("Content-Type", "application/json; charset=utf-8")
 		payload, err := json.Marshal(response)
 		if err != nil {
@@ -230,14 +212,6 @@ func validateConfig(config config, method string, requestType, responseType refl
 	if config.bodyLimit <= 0 || config.bodyLimit == math.MaxInt64 {
 		panic("jsonendpoint: body limit must be between 1 and math.MaxInt64-1")
 	}
-	validateRequestType(requestType)
-	validateResponseType(responseType)
-	if err := validateJSONContractType(requestType, true, map[reflect.Type]bool{}); err != nil {
-		panic("jsonendpoint: request type: " + err.Error())
-	}
-	if err := validateJSONContractType(responseType, false, map[reflect.Type]bool{}); err != nil {
-		panic("jsonendpoint: response type: " + err.Error())
-	}
 	for _, validator := range config.validators {
 		if validator.typ != requestType {
 			panic(fmt.Sprintf("jsonendpoint: validator type %s does not match request type %s", validator.typ, requestType))
@@ -246,141 +220,8 @@ func validateConfig(config config, method string, requestType, responseType refl
 
 }
 
-func validateRequestType(requestType reflect.Type) {
-	switch requestType.Kind() {
-	case reflect.Struct, reflect.Slice:
-		return
-	case reflect.Pointer:
-		if requestType.Elem().Kind() != reflect.Struct {
-			panic(fmt.Sprintf("jsonendpoint: request type %s must point to a struct", requestType))
-		}
-	case reflect.Map:
-		if requestType.Key().Kind() != reflect.String {
-			panic(fmt.Sprintf("jsonendpoint: request map type %s must have string keys", requestType))
-		}
-	default:
-		panic(fmt.Sprintf("jsonendpoint: unsupported request type %s", requestType))
-	}
-}
-
-func validateResponseType(responseType reflect.Type) {
-	switch responseType.Kind() {
-	case reflect.Interface, reflect.Pointer, reflect.Func, reflect.Chan, reflect.Complex64, reflect.Complex128, reflect.UnsafePointer:
-		panic(fmt.Sprintf("jsonendpoint: unsupported response type %s", responseType))
-	case reflect.Map:
-		if responseType.Key().Kind() != reflect.String {
-			panic(fmt.Sprintf("jsonendpoint: response map type %s must have string keys", responseType))
-		}
-	}
-}
-
-func validateJSONContractType(typ reflect.Type, request bool, stack map[reflect.Type]bool) error {
-	for typ.Kind() == reflect.Pointer {
-		typ = typ.Elem()
-	}
-	if typ == timeType {
-		return nil
-	}
-	if typ == rawMessageType {
-		return errors.New("json.RawMessage does not have a fixed reflected schema")
-	}
-	if typ == jsonNumberType {
-		return errors.New("json.Number is encoded as a number but reflected as a string")
-	}
-	if typ.Name() == "UUID" && typ.PkgPath() != "" && typ.Kind() != reflect.String {
-		return fmt.Errorf("type %s is reflected as string/uuid but has kind %s", typ, typ.Kind())
-	}
-	if stack[typ] {
-		if typ.Kind() == reflect.Slice || typ.Kind() == reflect.Map {
-			return fmt.Errorf("recursive container type %s is not supported", typ)
-		}
-		return nil
-	}
-	if hasCustomJSONRepresentation(typ, request) {
-		return fmt.Errorf("type %s has a custom JSON representation", typ)
-	}
-
-	stack[typ] = true
-	defer delete(stack, typ)
-	switch typ.Kind() {
-	case reflect.Interface:
-		return fmt.Errorf("interface type %s does not have a fixed schema", typ)
-	case reflect.Bool, reflect.String,
-		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64:
-		return nil
-	case reflect.Slice, reflect.Array:
-		if typ.Elem().Kind() == reflect.Uint8 {
-			return fmt.Errorf("byte sequence type %s is encoded as a string", typ)
-		}
-		return validateJSONContractType(typ.Elem(), request, stack)
-	case reflect.Map:
-		if typ.Key().Kind() != reflect.String {
-			return fmt.Errorf("map type %s must have string keys", typ)
-		}
-		return validateJSONContractType(typ.Elem(), request, stack)
-	case reflect.Struct:
-		jsonNames := map[string]string{}
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			if field.Anonymous && !field.IsExported() {
-				return fmt.Errorf("unexported anonymous field %s.%s is not supported", typ, field.Name)
-			}
-			if !field.IsExported() {
-				continue
-			}
-			jsonName, jsonOptions := splitJSONTag(field.Tag.Get("json"))
-			if jsonName == "-" {
-				continue
-			}
-			if field.Anonymous && jsonName == "" {
-				return fmt.Errorf("anonymous field %s.%s requires an explicit json tag", typ, field.Name)
-			}
-			if jsonName == "" {
-				jsonName = field.Name
-			}
-			if existing, ok := jsonNames[jsonName]; ok {
-				return fmt.Errorf("fields %s.%s and %s.%s use the same JSON name %q", typ, existing, typ, field.Name, jsonName)
-			}
-			jsonNames[jsonName] = field.Name
-			if jsonOptions["string"] {
-				return fmt.Errorf("field %s.%s uses unsupported json string encoding", typ, field.Name)
-			}
-			if err := validateJSONContractType(field.Type, request, stack); err != nil {
-				return err
-			}
-		}
-		return nil
-	default:
-		return fmt.Errorf("kind %s in type %s is not supported by schema reflection", typ.Kind(), typ)
-	}
-}
-
-func hasCustomJSONRepresentation(typ reflect.Type, request bool) bool {
-	interfaces := []reflect.Type{jsonMarshalerType, textMarshalerType}
-	if request {
-		interfaces = []reflect.Type{jsonUnmarshalerType, textUnmarshalerType}
-	}
-	for _, iface := range interfaces {
-		if typ.Implements(iface) || (typ.Kind() != reflect.Pointer && reflect.PointerTo(typ).Implements(iface)) {
-			return true
-		}
-	}
-	return false
-}
-
-func splitJSONTag(raw string) (string, map[string]bool) {
-	parts := strings.Split(raw, ",")
-	options := map[string]bool{}
-	for _, option := range parts[1:] {
-		options[strings.TrimSpace(option)] = true
-	}
-	return parts[0], options
-}
-
 func bindRequest[Request any](context *gin.Context, config config) (Request, error) {
-	request := newRequest[Request]()
+	var request Request
 	body, err := readBody(context.Request, config.bodyLimit)
 	if err != nil {
 		return request, err
@@ -392,48 +233,16 @@ func bindRequest[Request any](context *gin.Context, config config) (Request, err
 		}
 		return validateRequest(context, request, config.validators)
 	}
-	if bytes.Equal(trimmed, []byte("null")) {
-		return request, errors.New("JSON null is not a valid request body")
-	}
 	if !json.Valid(trimmed) {
 		return request, errors.New("request body must contain exactly one valid JSON value")
-	}
-	var raw any
-	if err := json.Unmarshal(trimmed, &raw); err != nil {
-		return request, err
-	}
-	if err := validateJSONRequestValue(raw, reflect.TypeOf((*Request)(nil)).Elem(), false); err != nil {
-		return request, err
 	}
 	if !isJSONContentType(context.GetHeader("Content-Type")) {
 		return request, errors.New("request Content-Type must be application/json")
 	}
-	if err := context.ShouldBindJSON(bindingTarget(&request)); err != nil {
+	if err := context.ShouldBindJSON(&request); err != nil {
 		return request, err
 	}
 	return validateRequest(context, request, config.validators)
-}
-
-func newRequest[Request any]() Request {
-	var request Request
-	typ := reflect.TypeOf((*Request)(nil)).Elem()
-	if typ.Kind() != reflect.Pointer {
-		return request
-	}
-	value := reflect.New(typ.Elem())
-	if value.Type() != typ {
-		value = value.Convert(typ)
-	}
-	reflect.ValueOf(&request).Elem().Set(value)
-	return request
-}
-
-func bindingTarget[Request any](request *Request) any {
-	typ := reflect.TypeOf((*Request)(nil)).Elem()
-	if typ.Kind() == reflect.Pointer {
-		return any(*request)
-	}
-	return request
 }
 
 func validateRequest[Request any](context *gin.Context, request Request, validators []validatorConfig) (Request, error) {
@@ -469,185 +278,8 @@ func isJSONContentType(contentType string) bool {
 	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
-func isNilJSONValue(value any) bool {
-	reflected := reflect.ValueOf(value)
-	return reflected.IsValid() && (reflected.Kind() == reflect.Map || reflected.Kind() == reflect.Slice) && reflected.IsNil()
-}
-
 func isNoBodyStatus(status int) bool {
 	return status == http.StatusNoContent || status == http.StatusResetContent
-}
-
-type visit struct {
-	typ reflect.Type
-	ptr uintptr
-}
-
-func validateJSONResponseValue(value reflect.Value, typ reflect.Type, nullable bool, seen map[visit]bool) error {
-	if !value.IsValid() {
-		return nil
-	}
-	if typ.Kind() == reflect.Pointer {
-		if value.IsNil() {
-			if !nullable {
-				return fmt.Errorf("nil pointer %s is not nullable at this schema location", typ)
-			}
-			return nil
-		}
-		key := visit{typ: typ, ptr: value.Pointer()}
-		if seen[key] {
-			return nil
-		}
-		seen[key] = true
-		defer delete(seen, key)
-		return validateJSONResponseValue(value.Elem(), typ.Elem(), nullable, seen)
-	}
-	if typ == timeType {
-		return nil
-	}
-	switch typ.Kind() {
-	case reflect.Slice:
-		if value.IsNil() {
-			return fmt.Errorf("nil slice %s is not nullable in the reflected schema", typ)
-		}
-		for i := 0; i < value.Len(); i++ {
-			if err := validateJSONResponseValue(value.Index(i), typ.Elem(), false, seen); err != nil {
-				return err
-			}
-		}
-	case reflect.Array:
-		for i := 0; i < value.Len(); i++ {
-			if err := validateJSONResponseValue(value.Index(i), typ.Elem(), false, seen); err != nil {
-				return err
-			}
-		}
-	case reflect.Map:
-		if value.IsNil() {
-			return fmt.Errorf("nil map %s is not nullable in the reflected schema", typ)
-		}
-		iterator := value.MapRange()
-		for iterator.Next() {
-			if err := validateJSONResponseValue(iterator.Value(), typ.Elem(), false, seen); err != nil {
-				return err
-			}
-		}
-	case reflect.Struct:
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			if !field.IsExported() {
-				continue
-			}
-			jsonName, options := splitJSONTag(field.Tag.Get("json"))
-			if jsonName == "-" {
-				continue
-			}
-			fieldValue := value.Field(i)
-			if options["omitempty"] && isEmptyJSONValue(fieldValue) {
-				continue
-			}
-			if err := validateJSONResponseValue(fieldValue, field.Type, fieldSchemaAllowsNull(field.Type), seen); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func validateJSONRequestValue(value any, typ reflect.Type, nullable bool) error {
-	if typ.Kind() == reflect.Pointer {
-		if value == nil {
-			if !nullable {
-				return fmt.Errorf("null pointer %s is not nullable at this schema location", typ)
-			}
-			return nil
-		}
-		return validateJSONRequestValue(value, typ.Elem(), nullable)
-	}
-	if value == nil {
-		if !nullable {
-			return fmt.Errorf("null %s is not nullable at this schema location", typ)
-		}
-		return nil
-	}
-	switch typ.Kind() {
-	case reflect.Slice, reflect.Array:
-		items, ok := value.([]any)
-		if !ok {
-			return nil
-		}
-		for _, item := range items {
-			if err := validateJSONRequestValue(item, typ.Elem(), false); err != nil {
-				return err
-			}
-		}
-	case reflect.Map:
-		items, ok := value.(map[string]any)
-		if !ok {
-			return nil
-		}
-		for _, item := range items {
-			if err := validateJSONRequestValue(item, typ.Elem(), false); err != nil {
-				return err
-			}
-		}
-	case reflect.Struct:
-		if typ == timeType {
-			return nil
-		}
-		object, ok := value.(map[string]any)
-		if !ok {
-			return nil
-		}
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			if !field.IsExported() {
-				continue
-			}
-			jsonName, _ := splitJSONTag(field.Tag.Get("json"))
-			if jsonName == "-" {
-				continue
-			}
-			if jsonName == "" {
-				jsonName = field.Name
-			}
-			fieldValue, exists := object[jsonName]
-			if !exists {
-				continue
-			}
-			if err := validateJSONRequestValue(fieldValue, field.Type, fieldSchemaAllowsNull(field.Type)); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func fieldSchemaAllowsNull(typ reflect.Type) bool {
-	if typ.Kind() != reflect.Pointer {
-		return false
-	}
-	for typ.Kind() == reflect.Pointer {
-		typ = typ.Elem()
-	}
-	return typ == timeType || typ.Kind() != reflect.Struct
-}
-
-func isEmptyJSONValue(value reflect.Value) bool {
-	switch value.Kind() {
-	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
-		return value.Len() == 0
-	case reflect.Bool:
-		return !value.Bool()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return value.Int() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return value.Uint() == 0
-	case reflect.Float32, reflect.Float64:
-		return value.Float() == 0
-	case reflect.Interface, reflect.Pointer:
-		return value.IsNil()
-	}
-	return false
 }
 
 func (policy defaultErrorPolicy) respond(context *gin.Context) {
@@ -656,29 +288,21 @@ func (policy defaultErrorPolicy) respond(context *gin.Context) {
 }
 
 func (policy defaultErrorPolicy) describe() routekit.DocResponse {
-	return routekit.DocResponse{
-		Status:      policy.status,
-		Description: policy.description,
-		Schema:      routekit.SchemaOf[ErrorResponse](),
-		ContentType: "application/json",
-	}
+	return routekit.ResponseOf[ErrorResponse](policy.status, policy.description)
 }
 
 func deriveContract[Request, Response any](config config, bindingErrors, handlerErrors defaultErrorPolicy) routekit.Contract {
-	success := routekit.DocResponse{
-		Status:      config.successStatus,
-		Description: config.successDescription,
-		ContentType: "application/json",
+	options := []routekit.ContractOption{
+		routekit.WithRequestContentType("application/json"),
+		routekit.WithResponseContentType("application/json"),
+		routekit.WithAdditionalResponse(bindingErrors.describe()),
+		routekit.WithAdditionalResponse(handlerErrors.describe()),
 	}
-	if !isNoBodyStatus(config.successStatus) {
-		success.Schema = routekit.SchemaOf[Response]()
+	if !config.bodyRequired {
+		options = append(options, routekit.WithOptionalRequestBody())
 	}
-	return routekit.Contract{
-		RequestBody: &routekit.DocBody{
-			Required:    config.bodyRequired,
-			Schema:      routekit.SchemaOf[Request](),
-			ContentType: "application/json",
-		},
-		Responses: []routekit.DocResponse{success, bindingErrors.describe(), handlerErrors.describe()},
+	if isNoBodyStatus(config.successStatus) {
+		options = append(options, routekit.WithoutResponseBody())
 	}
+	return routekit.JSONRequestContractOf[Request, Response](config.successStatus, config.successDescription, options...)
 }

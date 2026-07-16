@@ -123,7 +123,7 @@ Sem opcoes adicionais, o endpoint possui o seguinte comportamento:
 | Erro retornado pelo handler | 500 com `{"error":"internal server error"}` |
 | Documentacao automatica | respeita o modo documental configurado |
 
-Um body vazio e rejeitado quando obrigatorio. JSON `null` e diferente de body ausente e tambem e rejeitado porque o schema de request nao e nullable.
+Um body vazio e rejeitado quando obrigatorio. JSON `null` e diferente de body ausente: ele conta como um valor presente e segue a semantica de `encoding/json`. Por exemplo, `null` produz `nil` em requests ponteiro, slice ou map e mantem o zero value de valores nao anulaveis. Tags `binding` e validators ainda podem rejeitar o valor Go resultante.
 
 ## Status de sucesso
 
@@ -144,7 +144,7 @@ jsonendpoint.Handle(
 Somente status entre 200 e 299 sao aceitos. Status 204 e 205 nunca serializam o valor retornado pelo handler e sao documentados sem response body:
 
 ```go
-jsonendpoint.Handle(
+route := jsonendpoint.Handle(
 	group,
 	http.MethodDelete,
 	"/users/:id",
@@ -153,6 +153,7 @@ jsonendpoint.Handle(
 	1002,
 	jsonendpoint.WithSuccess(http.StatusNoContent, "No Content"),
 )
+route.PathParam("id", "string", true, "User ID")
 ```
 
 ## Body opcional
@@ -171,18 +172,18 @@ jsonendpoint.Handle(
 )
 ```
 
-Quando o body esta ausente, structs, slices e maps recebem seu zero value. Requests do tipo ponteiro para struct permanecem alocados:
+Quando o body esta ausente, o handler recebe o zero value do tipo de request. Isso inclui `nil` para ponteiros, slices e maps:
 
 ```go
 func handler(
 	c *gin.Context,
 	request *RunJobRequest,
 ) (RunJobResponse, error) {
-	// request nao e nil, mesmo quando o body opcional esta ausente.
+	// request e nil quando o body opcional esta ausente.
 }
 ```
 
-`WithOptionalBody` nao permite JSON `null`. Ele permite somente a ausencia do body.
+`WithOptionalBody` controla somente a ausencia do body. Tanto no modo obrigatorio quanto no opcional, um body presente contendo `null` e decodificado normalmente por `encoding/json`.
 
 ## Validacao adicional
 
@@ -281,7 +282,7 @@ Mesmo sem modo estrito, o adapter nunca escreve uma segunda response.
 
 ## Erros e observabilidade
 
-Erros de binding, validators, handler, validacao da response e serializacao sao adicionados a `gin.Context.Errors`. Um middleware pode registrar a causa real sem expo-la ao cliente:
+Erros de binding, validators, handler e serializacao sao adicionados a `gin.Context.Errors`. Um middleware pode registrar a causa real sem expo-la ao cliente:
 
 ```go
 func errorLogger(c *gin.Context) {
@@ -305,14 +306,9 @@ As respostas default nao expoem detalhes internos:
 
 Policies de erro customizadas ainda nao fazem parte da fase minima da API.
 
-## Tipos de request suportados
+## Tipos de request e semantica JSON
 
-O tipo de request pode ser:
-
-- struct;
-- ponteiro para struct;
-- slice;
-- map com chave string.
+O tipo de request pode ser qualquer tipo que `encoding/json` consiga decodificar e cujo schema possa ser representado ou fornecido ao gerador OpenAPI. Isso inclui structs, ponteiros, slices, maps, aliases, tipos genericos, containers recursivos, campos embedded promovidos, `json.RawMessage`, `json.Number`, sequencias de bytes e campos com `json:",string"`.
 
 Exemplos:
 
@@ -323,15 +319,15 @@ func sliceHandler(c *gin.Context, request []CreateUserRequest) (Response, error)
 func mapHandler(c *gin.Context, request map[string]int) (Response, error)
 ```
 
-Interfaces sao rejeitadas porque nao produzem um contrato documental util.
+Maps seguem as chaves aceitas por `encoding/json`: strings, inteiros e tipos que implementam o codec de texto apropriado. Interfaces sao representadas por schema JSON livre; use schema explicito quando o contrato real for mais restrito.
 
-## Tipos de response suportados
+Campos aceitos no request sao analisados separadamente dos campos emitidos na response. No request, `binding:"required"` define `required`; `null` ainda segue o comportamento do decoder e da validacao Gin.
 
-A response deve ser um tipo concreto com representacao JSON padrao. Structs, valores escalares, slices e maps com chave string sao permitidos.
+## Tipos de response e valores nil
 
-Ponteiros de response ainda sao rejeitados porque a fase atual nao possui uma policy explicita para decidir entre JSON `null`, status 204 ou erro quando o ponteiro e nil.
+A response pode ser qualquer tipo serializavel por `encoding/json`, observadas as necessidades documentais descritas abaixo. O adapter chama `json.Marshal` diretamente.
 
-Slices e maps top-level nil tambem nao sao serializados como `null` quando o schema nao e nullable. O adapter produz status 500 e registra `jsonendpoint.ErrNilResponse`. Containers nil aninhados tambem produzem status 500 e registram um erro de validacao da response. Inicialize containers que devem aparecer na response:
+Ponteiros, slices e maps nil sao valores JSON validos e serializam como `null`, tanto no nivel superior quanto em campos aninhados. Se o contrato exige array ou objeto vazio em vez de `null`, o handler deve inicializar o valor:
 
 ```go
 return ListUsersResponse{
@@ -341,23 +337,31 @@ return ListUsersResponse{
 
 Campos com `omitempty` podem continuar omitindo containers vazios ou nil.
 
-## Restricoes dos DTOs
+Status 204 e 205 sao a excecao: o adapter ignora o valor retornado e nao escreve body. Falhas reais de `json.Marshal`, como ciclos ou valores nao suportados, produzem a policy 500 e sao registradas em `gin.Context.Errors`.
 
-O adapter rejeita no registro tipos cuja representacao produzida por `encoding/json` nao pode ser descrita com fidelidade pelo reflector atual. Entre os casos rejeitados estao:
+## Fidelidade do schema
 
-- `json.RawMessage`;
-- `json.Number`;
-- `[]byte` e outras sequencias de bytes;
-- interfaces;
-- maps com chave diferente de string;
-- containers recursivos;
-- custom `MarshalJSON`, `UnmarshalJSON`, `MarshalText` ou `UnmarshalText`;
-- campos embedded sem tag `json` explicita;
-- campos com `json:",string"`;
-- campos diferentes com o mesmo nome JSON;
-- kinds sem representacao suportada, como `func`, `chan`, `complex` e `uintptr`.
+O contrato derivado usa `SchemaOf[Request]` na direcao de request e `SchemaOf[Response]` na direcao de response. O gerador OpenAPI considera promocao e conflitos de campos embedded, tags `json`, `omitempty`, `omitzero`, `json:",string"`, nulabilidade, bytes em base64, `json.RawMessage`, `json.Number`, aliases, generics, recursao e codecs de texto.
 
-Configuracoes invalidas causam panic durante o registro com prefixo `jsonendpoint:`. Isso faz o erro aparecer durante a inicializacao da aplicacao, antes de atender requests.
+Metodos `MarshalJSON` e `UnmarshalJSON` arbitrarios podem produzir qualquer shape e nao sao executados em zero values para adivinhar o contrato. Esses tipos precisam de uma destas declaracoes:
+
+- schema explicito em um escape hatch documental;
+- `routekit.OverrideSchemaOf[T]` em `OpenAPIConfig.SchemaRegistrations`;
+- implementacao de `routekit.OpenAPISchemaProvider`;
+- implementacao de `routekit.DirectionalOpenAPISchemaProvider` quando request e response diferem.
+
+Exemplo de override apenas para response:
+
+```go
+config.SchemaRegistrations = []routekit.SchemaRegistration{
+	routekit.OverrideSchemaOf[EncodedID](
+		routekit.OpenAPISchema{Type: "string", Format: "uuid"},
+		routekit.ForSchemaResponse(),
+	),
+}
+```
+
+Um shape nao representavel, codec JSON sem declaracao, provider invalido ou kind sem representacao gera diagnostico em `ValidateOpenAPI`/`BuildOpenAPI`, quando a configuracao OpenAPI esta disponivel. `jsonendpoint.Handle` continua causando panic com prefixo `jsonendpoint:` apenas para configuracao estatica invalida do adapter, como metodo/status/limite invalido, option nil ou validator com tipo incorreto.
 
 ## OpenAPI
 
@@ -375,8 +379,20 @@ O endpoint tipado respeita os modos documentais existentes. Por exemplo, para do
 document, err := routekit.BuildOpenAPI(routes, routekit.OpenAPIConfig{
 	Title:             "Users API",
 	Version:           "1.0.0",
+	BasePath:          "/api",
+	PathMode:          routekit.PathsRelativeToBase,
 	DocumentationMode: routekit.DocumentAll,
 })
+```
+
+`BasePath` e `PathMode` sao obrigatorios. Use `ValidateOpenAPI` antes do build para receber todos os erros e warnings de schemas e operacoes em um unico relatorio:
+
+```go
+report, err := routekit.ValidateOpenAPI(routes, config)
+if err != nil {
+	return fmt.Errorf("OpenAPI invalido (%d diagnosticos): %w", len(report.Diagnostics), err)
+}
+document, err := routekit.BuildOpenAPI(routes, config)
 ```
 
 Para opt-in por endpoint:
@@ -411,11 +427,15 @@ jsonendpoint.Handle(
 ).
 	Scopes("reports:write").
 	RequireClientContext().
-	UseDocumented(rateLimitMiddleware, routekit.MiddlewareMetadata{
-		Responses: []routekit.DocResponse{
-			{Status: http.StatusTooManyRequests, Description: "Too Many Requests"},
-		},
-	})
+	UseDocumented(
+		rateLimitMiddleware,
+		routekit.RespondsWith(
+			routekit.ResponseOf[jsonendpoint.ErrorResponse](
+				http.StatusTooManyRequests,
+				"Too Many Requests",
+			),
+		),
+	)
 ```
 
 O adapter nao altera a ordem de middlewares do `RouterGroup`.

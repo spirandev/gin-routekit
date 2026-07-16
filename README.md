@@ -1,9 +1,11 @@
 # gin-routekit
 gin-routekit is a reusable Go library that encapsulates a fluent route definition pattern for Gin applications. It supports route grouping, per-route metadata, authentication and authorization middleware configuration, route context injection, and a generic AppRouter for registering and syncing routes across projects.
 
+For an end-to-end reference covering routes, middleware, AppRouter, OpenAPI, Swagger UI and typed JSON endpoints, see the [complete usage guide](docs/guia-completo.md).
+
 ## OpenAPI Automation
 
-OpenAPI generation is explicit by default. Existing applications can keep using `EnabledByDefault`, `Document()`, `HideFromDocs()`, `Body()`, `Response()`, `DocProfile()` and route decorators.
+OpenAPI generation targets OpenAPI 3.1.0 and JSON Schema 2020-12. Generation is explicit by default. Existing applications can keep using `EnabledByDefault`, `Document()`, `HideFromDocs()`, `Body()`, `Response()`, `DocProfile()` and route decorators.
 
 New code should prefer `DocumentationMode`:
 
@@ -11,11 +13,52 @@ New code should prefer `DocumentationMode`:
 doc, err := routekit.BuildOpenAPI(routes, routekit.OpenAPIConfig{
 	Title:             "Example API",
 	Version:           "1.0.0",
+	BasePath:          "/api",
+	PathMode:          routekit.PathsRelativeToBase,
 	DocumentationMode: routekit.DocumentAll,
 })
 ```
 
 Use `DocumentOptIn` to require `Document()` per endpoint. `HideFromDocs()` always wins over global or group defaults.
+
+`BasePath` and `PathMode` are mandatory. `PathsRelativeToBase` removes `BasePath` once from every emitted path and, when `Servers` is empty, emits a relative server with that base path. Every registered route must belong to the base path. `FullRegisteredPaths` preserves complete registered paths; server URLs must not repeat the same application prefix.
+
+Every documented operation must declare at least one response. No implicit `200 OK` response is generated. An operation with responses but no 2xx response produces a warning rather than an error.
+
+### Validate, Build and Marshal
+
+Use `ValidateOpenAPI` in CI to collect all known errors and warnings in one pass:
+
+```go
+report, err := routekit.ValidateOpenAPI(routes, config)
+for _, diagnostic := range report.Diagnostics {
+	log.Printf("%s %s: %s", diagnostic.Severity, diagnostic.Code, diagnostic.Message)
+}
+if err != nil {
+	return err
+}
+
+document, err := routekit.BuildOpenAPI(routes, config)
+if err != nil {
+	return err
+}
+payload, err := routekit.MarshalOpenAPI(document)
+```
+
+`ValidateOpenAPI` returns a `DiagnosticReport` even when it also returns a `*DiagnosticsError`; warnings do not block a build. `BuildOpenAPI` returns no document when errors are present. `MarshalOpenAPI` produces the deterministic, indented JSON payload without registering an HTTP endpoint.
+
+An `AppRouter` exposes the same validation and build operations after its route snapshot has been registered:
+
+```go
+if err := appRouter.RegisterRoutes(engine); err != nil {
+	return err
+}
+report, err := appRouter.ValidateOpenAPI(config)
+document, err := appRouter.BuildOpenAPI(config)
+err = appRouter.RegisterOpenAPI(engine, config)
+```
+
+`AppRouter.ValidateOpenAPI` and `AppRouter.BuildOpenAPI` require `RegisterRoutes`. Neither method registers an OpenAPI endpoint or starts a server. `RegisterOpenAPI` builds and marshals through the same pipeline, then registers `JSONPath` (default `/openapi.json`). Package-level `ValidateOpenAPI` and `BuildOpenAPI` remain useful for snapshots and route subsets.
 
 ### Group Defaults
 
@@ -37,7 +80,8 @@ Endpoint exceptions are explicit:
 group.GET("/health", health, "Health", 1).
 	WithoutDocProfile("tenant").
 	WithoutDefaultResponse(401).
-	WithoutDefaultParameter(routekit.DocParamInHeader, "X-Tenant")
+	WithoutDefaultParameter(routekit.DocParamInHeader, "X-Tenant").
+	Response(200, "OK", nil)
 ```
 
 ### Contracts
@@ -49,6 +93,34 @@ routekit.DescribeJSON[LoginRequest, LoginResponse](
 	group.POST("/login", login, "Login", 10),
 	200,
 	"OK",
+)
+```
+
+The constructor equivalents cover request/response, response-only and no-body operations without placeholder `struct{}` types:
+
+```go
+group.POST("/login", login, "Login", 10).
+	Contract(routekit.JSONRequestContractOf[LoginRequest, LoginResponse](200, "OK"))
+
+group.GET("/health", health, "Health", 11).
+	Contract(routekit.JSONResponseContractOf[HealthResponse](200, "OK"))
+
+group.DELETE("/sessions/:id", deleteSession, "Delete session", 12).
+	Contract(routekit.EmptyJSONResponseContract(
+		204,
+		"No Content",
+		routekit.WithContractParameter(routekit.DocParam{
+			Name: "id", In: routekit.DocParamInPath,
+			Type: "string", Required: true,
+		}),
+	))
+```
+
+`JSONContractOf` remains as a deprecated alias of `JSONRequestContractOf`. `ResponseOf[T]` creates a JSON `DocResponse` for contracts or middleware contributions. `DefaultResponseOf[T]` and `WithJSONDefaults` create typed global defaults:
+
+```go
+config.Defaults = routekit.WithJSONDefaults(
+	routekit.DefaultResponseOf[ErrorResponse](500, "Internal Server Error"),
 )
 ```
 
@@ -89,7 +161,7 @@ route.Public().Tags("authentication")
 
 The returned value is the original `*routekit.RouteConfig`, so authentication, middleware, scopes and documentation fluents remain available. Typed endpoints preserve the existing documentation mode; use `Document()`, `WithDocumentation` or `DocumentAll` as usual.
 
-The minimal adapter provides:
+The adapter provides:
 
 - required JSON bodies by default, with `WithOptionalBody` for an absent body;
 - Gin binding validation plus `WithValidator` for application validation;
@@ -98,7 +170,9 @@ The minimal adapter provides:
 - documented and runtime-consistent JSON errors for binding (400) and handler failures (500);
 - `WithStrictWriter` to record direct handler writes as contract violations without writing a second response.
 
-Request and response types must have a standard JSON representation that the current reflector can describe exactly. Pointer responses, interfaces, custom JSON codecs, byte sequences, implicit embedded-field flattening and `json:",string"` are rejected during registration. Status 204 and 205 never serialize a body.
+Request decoding and response encoding follow `encoding/json`. A required body must be present, but the JSON value may be `null`; pointers, maps and slices retain the corresponding Go nil semantics. Nil pointer and container responses serialize as JSON `null`. Status 204 and 205 never serialize a body.
+
+Schema generation understands promoted embedded fields, aliases, recursive containers, `json:",string"`, `omitempty`, `omitzero`, `[]byte`, `json.Number`, `json.RawMessage`, supported map keys and directional text codecs. Arbitrary `MarshalJSON` or `UnmarshalJSON` behavior cannot be inferred safely and requires an explicit schema, provider or registration. See the [complete jsonendpoint usage guide](docs/jsonendpoint.md) for runtime details.
 
 Streaming, SSE, WebSocket, proxy/pass-through, downloads, multipart and handlers that intentionally control multiple responses continue to use `gin.HandlerFunc` with a manual `Contract`.
 
@@ -114,21 +188,57 @@ group.GET("/users", listUsers, "List users", 20).
 
 `SchemaWithExample[T](example)` attaches a descriptor-level example. A `DocBody.Example` or `DocResponse.Example` value takes precedence.
 
-### Documented Middleware
+### Directional Schemas
 
-`UseDocumented` registers the same Gin middleware in the runtime chain and stores documentation metadata for routes that include it:
+Request and response schemas are analyzed separately because `encoding/json` can accept and emit different shapes. Request requiredness follows `binding:"required"`; response requiredness follows field promotion and omission rules. Nullability, `MarshalText`/`UnmarshalText`, `MarshalJSON`/`UnmarshalJSON` and map-key support are also evaluated in the relevant direction. Equivalent request and response schemas may share a component; different schemas receive separate components.
+
+An explicit `OpenAPISchema` in `DocBody.Schema` or `DocResponse.Schema` bypasses reflection. Reusable type registrations can name reflected components or override a type:
 
 ```go
-group.UseDocumented(authMiddleware, routekit.MiddlewareMetadata{
-	Parameters: []routekit.DocParam{{Name: "Authorization", In: routekit.DocParamInHeader, Type: "string", Required: true}},
-	Responses:  []routekit.DocResponse{{Status: 401, Description: "Unauthorized"}},
-})
+config.SchemaRegistrations = []routekit.SchemaRegistration{
+	routekit.RegisterSchemaAs[CreateUserRequest](
+		"CreateUserInput",
+		routekit.ForSchemaRequest(),
+	),
+	routekit.OverrideSchemaOf[ExternalDate](
+		routekit.OpenAPISchema{Type: "string", Format: "date"},
+		routekit.ForSchemaDirections(routekit.SchemaRequest, routekit.SchemaResponse),
+	),
+}
+```
+
+Omit a direction option to apply a registration to both directions. `ForSchemaRequest`, `ForSchemaResponse` and `ForSchemaDirections` constrain it. `Components.Schemas` remains available for independent manual components.
+
+Types can also implement `OpenAPISchemaProvider` or `DirectionalOpenAPISchemaProvider`:
+
+```go
+func (ExternalDate) OpenAPISchemaFor(direction routekit.SchemaDirection) routekit.OpenAPISchema {
+	return routekit.OpenAPISchema{Type: "string", Format: "date"}
+}
+```
+
+Providers may use pointer receivers; routekit invokes them on a new zero-value instance. Invalid schemas, provider panics, duplicate registrations and component-name collisions are diagnostics rather than silent fallbacks.
+
+### Documented Middleware
+
+`UseDocumented` registers the same Gin middleware in the runtime chain and accepts composable documentation contributions for routes that include it:
+
+```go
+group.UseDocumented(
+	authMiddleware,
+	routekit.RequireSecurityScheme("BearerAuth"),
+	routekit.RespondsWith(routekit.ResponseOf[ErrorResponse](401, "Unauthorized")),
+)
 
 group.GET("/reports", reports, "Reports", 30).
-	UseDocumented(rateLimitMiddleware, routekit.MiddlewareMetadata{
-		Responses: []routekit.DocResponse{{Status: 429, Description: "Too Many Requests"}},
-	})
+	UseDocumented(
+		rateLimitMiddleware,
+		routekit.RequiresHeader("X-Request-ID", "string", true, "Request correlation ID"),
+		routekit.RespondsWith(routekit.ResponseOf[ErrorResponse](429, "Too Many Requests")),
+	)
 ```
+
+`RequireOperationHeader` (`RequiresHeader` is its concise alias), `RequireSecurityScheme`, `RequiresSecurity`, `RespondsWith` and `UsesProfiles` compose without mutating their inputs. Existing `MiddlewareMetadata` values still implement `DocumentationContribution`. Contributions describe behavior declaratively; routekit does not inspect middleware code.
 
 ### Security Requirements
 
@@ -140,3 +250,42 @@ Use `AddSecurityRequirement` when multiple schemes are required together:
 ctx.Operation.AddSecurityRequirement("ClientID", "ClientSecret") // ClientID AND ClientSecret
 ctx.Operation.AddSecurity("BearerAuth")                          // OR BearerAuth
 ```
+
+A security scheme and an operation parameter are distinct OpenAPI concepts. `RequireSecurityScheme("APIKey")` references a scheme from `OpenAPIConfig.Components.SecuritySchemes`; it does not also add the key as a header parameter. Declare a separate operation header only when the API contract truly has both. Declaring the same API-key header in both forms is a validation error.
+
+Route security rules map exported route flags to documentation without inspecting runtime middleware:
+
+```go
+config.Components.SecuritySchemes = map[string]*routekit.OpenAPISecurityScheme{
+	"BearerAuth": routekit.BearerSecurityScheme("Bearer token"),
+}
+config.SecurityRules = []routekit.RouteSecurityRule{
+	routekit.WhenAuthenticated(routekit.RequireSecurityScheme("BearerAuth")),
+	routekit.WhenM2M(routekit.UsesProfiles("m2m")),
+	routekit.WhenIntegration(routekit.RequiresHeader(
+		"X-Integration-ID", "string", true, "Integration identifier",
+	)),
+}
+```
+
+`WhenAuthenticated`, `WhenM2M` and `WhenIntegration` match the corresponding `Handler` flags. Use `NewRouteSecurityRule` with a `RouteSecurityPredicate` for another policy. Missing schemes, invalid scopes and duplicate API-key headers are errors; declared but unused schemes produce warnings.
+
+### Profiles
+
+Profiles can include a description in addition to parameters and security requirements:
+
+```go
+config.Profiles = map[string]routekit.DocProfile{
+	"tenant": {
+		Description: "Requests scoped to one tenant",
+		Headers: []routekit.DocParam{{
+			Name: "X-Tenant", In: routekit.DocParamInHeader,
+			Type: "string", Required: true,
+		}},
+	},
+}
+```
+
+Profiles actually used by documented operations are emitted in the top-level `x-routekit-profiles` extension, including `description` when set. Unknown profiles and incompatible profile parameters are errors; duplicate use is a warning.
+
+See [Migrating to OpenAPI 3.1 and fidelity diagnostics](docs/migration-openapi-3.1.md) for breaking changes and before/after examples.

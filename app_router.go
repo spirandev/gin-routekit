@@ -59,6 +59,20 @@ func (ar *AppRouter) Routes() []Route {
 	return cloneRoutes(ar.routes)
 }
 
+func (ar *AppRouter) ValidateOpenAPI(config OpenAPIConfig) (DiagnosticReport, error) {
+	if !ar.routesRegistered {
+		return DiagnosticReport{}, errRegisterRoutesRequired
+	}
+	return ValidateOpenAPI(ar.routes, config)
+}
+
+func (ar *AppRouter) BuildOpenAPI(config OpenAPIConfig) (*OpenAPIDocument, error) {
+	if !ar.routesRegistered {
+		return nil, errRegisterRoutesRequired
+	}
+	return BuildOpenAPI(ar.routes, config)
+}
+
 func collectRegistrars(registrars any) []RouteRegistrar {
 	if registrars == nil {
 		return nil

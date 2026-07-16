@@ -2,6 +2,7 @@ package routekit
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -105,8 +106,16 @@ func (op *OpenAPIOperation) AddSecurityRequirementFromMap(requirement OpenAPISec
 func (op *OpenAPIOperation) AddResponse(status int, description string, schema any) {
 	content := map[string]OpenAPIMediaType{}
 	if schema != nil {
-		reflector := newInlineSchemaReflector()
-		schema, _ := reflector.schemaFromInput(schema)
+		reflector := op.schemaReflector
+		if reflector == nil {
+			reflector = newSchemaReflector()
+		}
+		schema, _ := reflector.schemaFromInput(schema, SchemaResponse)
+		if op.schemaReflector == nil {
+			named := reflector.finalize()
+			rewriteSchemaRefs(schema, reflector.finalNames)
+			schema = inlineComponentRefs(schema, named, map[string]bool{})
+		}
 		content["application/json"] = OpenAPIMediaType{
 			Schema: schema,
 		}
@@ -114,10 +123,51 @@ func (op *OpenAPIOperation) AddResponse(status int, description string, schema a
 	if op.Responses == nil {
 		op.Responses = OpenAPIResponses{}
 	}
-	op.Responses[statusLabel(status)] = OpenAPIResponse{
+	label := statusLabel(status)
+	response := OpenAPIResponse{
 		Description: description,
 		Content:     content,
 	}
+	if _, exists := op.Responses[label]; exists {
+		op.responseConflict = append(op.responseConflict, label)
+		return
+	}
+	op.Responses[label] = response
+}
+
+func inlineComponentRefs(schema *OpenAPISchema, components map[string]*OpenAPISchema, seen map[string]bool) *OpenAPISchema {
+	if schema == nil {
+		return nil
+	}
+	const prefix = "#/components/schemas/"
+	if strings.HasPrefix(schema.Ref, prefix) {
+		name := strings.TrimPrefix(schema.Ref, prefix)
+		if seen[name] {
+			return &OpenAPISchema{Type: "object"}
+		}
+		if component := components[name]; component != nil {
+			seen[name] = true
+			inlined := inlineComponentRefs(component, components, seen)
+			delete(seen, name)
+			return inlined
+		}
+	}
+	cloned := cloneOpenAPISchema(schema)
+	for index := range cloned.AnyOf {
+		item := inlineComponentRefs(&cloned.AnyOf[index], components, seen)
+		if item != nil {
+			cloned.AnyOf[index] = *item
+		}
+	}
+	cloned.Items = inlineComponentRefs(cloned.Items, components, seen)
+	cloned.AdditionalProperties = inlineComponentRefs(cloned.AdditionalProperties, components, seen)
+	for name, property := range cloned.Properties {
+		item := inlineComponentRefs(&property, components, seen)
+		if item != nil {
+			cloned.Properties[name] = *item
+		}
+	}
+	return cloned
 }
 
 func paramsEqual(a, b OpenAPIParameter) bool {
@@ -128,7 +178,7 @@ func paramsEqual(a, b OpenAPIParameter) bool {
 		return false
 	}
 	if a.Schema != nil && b.Schema != nil {
-		if a.Schema.Type != b.Schema.Type || a.Schema.Format != b.Schema.Format {
+		if !reflect.DeepEqual(a.Schema, b.Schema) {
 			return false
 		}
 	}
@@ -171,27 +221,5 @@ func statusLabel(status int) string {
 	case 500:
 		return "500"
 	}
-	return itoa(status)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	negative := n < 0
-	if negative {
-		n = -n
-	}
-	buf := [12]byte{}
-	pos := len(buf)
-	for n > 0 {
-		pos--
-		buf[pos] = byte('0' + n%10)
-		n /= 10
-	}
-	if negative {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
+	return strconv.Itoa(status)
 }

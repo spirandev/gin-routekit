@@ -100,6 +100,18 @@ func WithDefaultContentTypes(request, response string) GroupOption {
 	}
 }
 
+func WithJSONDefaults(defaults ...JSONDefault) DocumentationDefaults {
+	responses := make([]DocResponse, 0, len(defaults))
+	for _, defaultValue := range defaults {
+		responses = append(responses, cloneDocResponse(DocResponse{
+			Status: defaultValue.Status, Description: defaultValue.Description,
+			Schema: defaultValue.Schema, ContentType: defaultValue.ContentType,
+			Example: defaultValue.Example,
+		}))
+	}
+	return DocumentationDefaults{Responses: responses, ResponseContentType: "application/json"}
+}
+
 func defaultGroupOptions() GroupOptions {
 	return GroupOptions{
 		RouteContextKeys: RouteContextKeys{

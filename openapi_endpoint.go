@@ -2,24 +2,18 @@ package routekit
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/gin-gonic/gin"
 )
 
 func (ar *AppRouter) RegisterOpenAPI(engine *gin.Engine, config OpenAPIConfig) error {
-	if !ar.routesRegistered {
-		return errRegisterRoutesRequired
-	}
-	if len(ar.routes) == 0 {
-		return errRegisterRoutesRequired
-	}
-
-	doc, err := BuildOpenAPI(ar.routes, config)
+	doc, err := ar.BuildOpenAPI(config)
 	if err != nil {
 		return err
 	}
 
-	payload, err := json.MarshalIndent(doc, "", "  ")
+	payload, err := MarshalOpenAPI(doc)
 	if err != nil {
 		return err
 	}
@@ -32,6 +26,13 @@ func (ar *AppRouter) RegisterOpenAPI(engine *gin.Engine, config OpenAPIConfig) e
 
 	engine.GET(jsonPath, serveOpenAPI(ar.openAPICache))
 	return nil
+}
+
+func MarshalOpenAPI(document *OpenAPIDocument) ([]byte, error) {
+	if document == nil {
+		return nil, errors.New("OpenAPI document must not be nil")
+	}
+	return json.MarshalIndent(document, "", "  ")
 }
 
 func serveOpenAPI(payload []byte) gin.HandlerFunc {

@@ -1,6 +1,10 @@
 package routekit
 
-import "github.com/gin-gonic/gin"
+import (
+	"reflect"
+
+	"github.com/gin-gonic/gin"
+)
 
 func cloneRoutes(routes []Route) []Route {
 	if routes == nil {
@@ -148,10 +152,11 @@ func cloneContract(contract *Contract) *Contract {
 		return nil
 	}
 	return &Contract{
-		Profiles:    append([]string(nil), contract.Profiles...),
-		Parameters:  cloneDocParams(contract.Parameters),
-		RequestBody: cloneDocBody(contract.RequestBody),
-		Responses:   cloneDocResponses(contract.Responses),
+		Profiles:         append([]string(nil), contract.Profiles...),
+		Parameters:       cloneDocParams(contract.Parameters),
+		RequestBody:      cloneDocBody(contract.RequestBody),
+		Responses:        cloneDocResponses(contract.Responses),
+		validationIssues: append([]string(nil), contract.validationIssues...),
 	}
 }
 
@@ -194,9 +199,37 @@ func cloneSecurityRequirement(requirement OpenAPISecurityRequirement) OpenAPISec
 	}
 	cloned := OpenAPISecurityRequirement{}
 	for name, scopes := range requirement {
-		cloned[name] = append([]string(nil), scopes...)
+		cloned[name] = append([]string{}, scopes...)
 	}
 	return cloned
+}
+
+func cloneOpenAPISecurityScheme(scheme *OpenAPISecurityScheme) *OpenAPISecurityScheme {
+	if scheme == nil {
+		return nil
+	}
+	cloned := *scheme
+	if scheme.Flows != nil {
+		cloned.Flows = &OpenAPIOAuthFlows{
+			Implicit: cloneOpenAPIOAuthFlow(scheme.Flows.Implicit), Password: cloneOpenAPIOAuthFlow(scheme.Flows.Password),
+			ClientCredentials: cloneOpenAPIOAuthFlow(scheme.Flows.ClientCredentials), AuthorizationCode: cloneOpenAPIOAuthFlow(scheme.Flows.AuthorizationCode),
+		}
+	}
+	return &cloned
+}
+
+func cloneOpenAPIOAuthFlow(flow *OpenAPIOAuthFlow) *OpenAPIOAuthFlow {
+	if flow == nil {
+		return nil
+	}
+	cloned := *flow
+	if flow.Scopes != nil {
+		cloned.Scopes = map[string]string{}
+		for name, description := range flow.Scopes {
+			cloned.Scopes[name] = description
+		}
+	}
+	return &cloned
 }
 
 func cloneSecurityRequirements(requirements []OpenAPISecurityRequirement) []OpenAPISecurityRequirement {
@@ -244,37 +277,74 @@ func cloneSchemaInput(schema any) any {
 }
 
 func cloneOpenAPISchema(schema *OpenAPISchema) *OpenAPISchema {
+	return cloneOpenAPISchemaSeen(schema, map[*OpenAPISchema]*OpenAPISchema{})
+}
+
+func cloneOpenAPISchemaSeen(schema *OpenAPISchema, seen map[*OpenAPISchema]*OpenAPISchema) *OpenAPISchema {
 	if schema == nil {
 		return nil
 	}
+	if cloned, exists := seen[schema]; exists {
+		return cloned
+	}
 	cloned := *schema
-	cloned.Items = cloneOpenAPISchema(schema.Items)
+	seen[schema] = &cloned
+	if schema.AnyOf != nil {
+		cloned.AnyOf = make([]OpenAPISchema, len(schema.AnyOf))
+		for i := range schema.AnyOf {
+			item := cloneOpenAPISchemaSeen(&schema.AnyOf[i], seen)
+			if item != nil {
+				cloned.AnyOf[i] = *item
+			}
+		}
+	}
+	cloned.Items = cloneOpenAPISchemaSeen(schema.Items, seen)
 	cloned.Required = append([]string(nil), schema.Required...)
 	if schema.Properties != nil {
 		cloned.Properties = make(map[string]OpenAPISchema, len(schema.Properties))
 		for name, property := range schema.Properties {
-			propertyCopy := cloneOpenAPISchema(&property)
+			propertyCopy := cloneOpenAPISchemaSeen(&property, seen)
 			if propertyCopy != nil {
 				cloned.Properties[name] = *propertyCopy
 			}
 		}
 	}
-	cloned.AdditionalProperties = cloneOpenAPISchema(schema.AdditionalProperties)
+	cloned.AdditionalProperties = cloneOpenAPISchemaSeen(schema.AdditionalProperties, seen)
 	return &cloned
 }
 
 func cloneAny(value any) any {
+	return cloneAnySeen(value, map[cloneAnyVisit]any{})
+}
+
+type cloneAnyVisit struct {
+	kind    reflect.Kind
+	typ     reflect.Type
+	pointer uintptr
+}
+
+func cloneAnySeen(value any, seen map[cloneAnyVisit]any) any {
 	switch v := value.(type) {
 	case map[string]any:
+		visit := cloneAnyVisit{kind: reflect.Map, typ: reflect.TypeOf(v), pointer: uintptr(reflect.ValueOf(v).UnsafePointer())}
+		if cloned, exists := seen[visit]; exists {
+			return cloned
+		}
 		cloned := make(map[string]any, len(v))
+		seen[visit] = cloned
 		for key, item := range v {
-			cloned[key] = cloneAny(item)
+			cloned[key] = cloneAnySeen(item, seen)
 		}
 		return cloned
 	case []any:
+		visit := cloneAnyVisit{kind: reflect.Slice, typ: reflect.TypeOf(v), pointer: uintptr(reflect.ValueOf(v).UnsafePointer())}
+		if cloned, exists := seen[visit]; exists {
+			return cloned
+		}
 		cloned := make([]any, len(v))
+		seen[visit] = cloned
 		for i, item := range v {
-			cloned[i] = cloneAny(item)
+			cloned[i] = cloneAnySeen(item, seen)
 		}
 		return cloned
 	case []string:

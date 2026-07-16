@@ -23,7 +23,7 @@ func TestDocumentationModeCompatibilityAndOverrides(t *testing.T) {
 		group.group.GET("/hidden", okHandler, "hidden", 1)
 
 		ar := newTestEngine(t, group)
-		doc := buildDoc(t, ar, OpenAPIConfig{Title: "Test", Version: "1"})
+		doc := buildDoc(t, ar, OpenAPIConfig{Title: "Test", Version: "1", BasePath: "/", PathMode: FullRegisteredPaths})
 		if len(doc.Paths) != 0 {
 			t.Fatalf("expected no paths, got %v", doc.Paths)
 		}
@@ -159,7 +159,8 @@ func TestContractAndFluentPrecedence(t *testing.T) {
 
 	doc := buildDoc(t, newTestEngine(t, group), baseConfig())
 	login := doc.Paths["/api/login"].Post
-	if login.RequestBody == nil || login.RequestBody.Content["application/json"].Schema.Ref == "" {
+	requestSchema := login.RequestBody.Content["application/json"].Schema
+	if login.RequestBody == nil || requestSchema == nil || len(requestSchema.AnyOf) != 2 || requestSchema.AnyOf[0].Ref == "" {
 		t.Fatal("expected contract request body component ref")
 	}
 	if _, ok := login.Responses["201"]; !ok {
@@ -184,8 +185,9 @@ func TestSchemaDescriptorInputAndExamples(t *testing.T) {
 		Contract(Contract{Responses: []DocResponse{{Status: 200, Description: "OK", Schema: SchemaWithExample[loginResponseDTO](descriptorExample), Example: explicitExample}}})
 
 	doc := buildDoc(t, newTestEngine(t, group), baseConfig())
-	if got := doc.Paths["/api/login"].Post.RequestBody.Content["application/json"].Schema.Ref; got == "" {
-		t.Fatal("expected SchemaOf pointer to create component ref")
+	requestSchema := doc.Paths["/api/login"].Post.RequestBody.Content["application/json"].Schema
+	if requestSchema == nil || len(requestSchema.AnyOf) != 2 || requestSchema.AnyOf[0].Ref == "" {
+		t.Fatalf("expected nullable SchemaOf pointer component ref, got %#v", requestSchema)
 	}
 	example := doc.Paths["/api/login"].Post.Responses["200"].Content["application/json"].Example
 	if !reflect.DeepEqual(example, descriptorExample) {

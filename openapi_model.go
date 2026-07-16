@@ -1,12 +1,18 @@
 package routekit
 
 type OpenAPIDocument struct {
-	OpenAPI    string             `json:"openapi"`
-	Info       OpenAPIInfo        `json:"info"`
-	Servers    []OpenAPIServer    `json:"servers,omitempty"`
-	Paths      OpenAPIPaths       `json:"paths"`
-	Components *OpenAPIComponents `json:"components,omitempty"`
-	Tags       []OpenAPITag       `json:"tags,omitempty"`
+	OpenAPI           string                    `json:"openapi"`
+	JSONSchemaDialect string                    `json:"jsonSchemaDialect,omitempty"`
+	Info              OpenAPIInfo               `json:"info"`
+	Servers           []OpenAPIServer           `json:"servers,omitempty"`
+	Paths             OpenAPIPaths              `json:"paths"`
+	Components        *OpenAPIComponents        `json:"components,omitempty"`
+	Tags              []OpenAPITag              `json:"tags,omitempty"`
+	RoutekitProfiles  map[string]OpenAPIProfile `json:"x-routekit-profiles,omitempty"`
+}
+
+type OpenAPIProfile struct {
+	Description string `json:"description,omitempty"`
 }
 
 type OpenAPIInfo struct {
@@ -49,7 +55,9 @@ type OpenAPIOperation struct {
 	Security    []OpenAPISecurityRequirement `json:"security,omitempty"`
 	Deprecated  bool                         `json:"deprecated,omitempty"`
 
-	paramConflict []paramKey `json:"-"`
+	paramConflict    []paramKey       `json:"-"`
+	responseConflict []string         `json:"-"`
+	schemaReflector  *schemaReflector `json:"-"`
 }
 
 type OpenAPIResponses map[string]OpenAPIResponse
@@ -83,11 +91,11 @@ type OpenAPISchema struct {
 	Type                 string                   `json:"type,omitempty"`
 	Format               string                   `json:"format,omitempty"`
 	Description          string                   `json:"description,omitempty"`
+	AnyOf                []OpenAPISchema          `json:"anyOf,omitempty"`
 	Items                *OpenAPISchema           `json:"items,omitempty"`
 	Properties           map[string]OpenAPISchema `json:"properties,omitempty"`
 	Required             []string                 `json:"required,omitempty"`
 	Ref                  string                   `json:"$ref,omitempty"`
-	Nullable             bool                     `json:"nullable,omitempty"`
 	AdditionalProperties *OpenAPISchema           `json:"additionalProperties,omitempty"`
 }
 
@@ -97,17 +105,47 @@ type OpenAPIComponents struct {
 }
 
 type OpenAPISecurityScheme struct {
-	Type         string `json:"type"`
-	Description  string `json:"description,omitempty"`
-	Name         string `json:"name,omitempty"`
-	In           string `json:"in,omitempty"`
-	Scheme       string `json:"scheme,omitempty"`
-	BearerFormat string `json:"bearerFormat,omitempty"`
+	Type             string             `json:"type"`
+	Description      string             `json:"description,omitempty"`
+	Name             string             `json:"name,omitempty"`
+	In               string             `json:"in,omitempty"`
+	Scheme           string             `json:"scheme,omitempty"`
+	BearerFormat     string             `json:"bearerFormat,omitempty"`
+	Flows            *OpenAPIOAuthFlows `json:"flows,omitempty"`
+	OpenIDConnectURL string             `json:"openIdConnectUrl,omitempty"`
+}
+
+type OpenAPIOAuthFlows struct {
+	Implicit          *OpenAPIOAuthFlow `json:"implicit,omitempty"`
+	Password          *OpenAPIOAuthFlow `json:"password,omitempty"`
+	ClientCredentials *OpenAPIOAuthFlow `json:"clientCredentials,omitempty"`
+	AuthorizationCode *OpenAPIOAuthFlow `json:"authorizationCode,omitempty"`
+}
+
+type OpenAPIOAuthFlow struct {
+	AuthorizationURL string            `json:"authorizationUrl,omitempty"`
+	TokenURL         string            `json:"tokenUrl,omitempty"`
+	RefreshURL       string            `json:"refreshUrl,omitempty"`
+	Scopes           map[string]string `json:"scopes"`
 }
 
 type OpenAPISecurityRequirement map[string][]string
 
 type DocumentationMode string
+
+type SchemaDirection string
+
+const (
+	SchemaRequest  SchemaDirection = "request"
+	SchemaResponse SchemaDirection = "response"
+)
+
+type PathMode string
+
+const (
+	PathsRelativeToBase PathMode = "relative"
+	FullRegisteredPaths PathMode = "full"
+)
 
 const (
 	DocumentationModeUnspecified DocumentationMode = ""
@@ -121,15 +159,27 @@ type OpenAPIConfig struct {
 	Description string
 	Servers     []OpenAPIServer
 	JSONPath    string
+	BasePath    string
+	PathMode    PathMode
 
 	DocumentationMode DocumentationMode
 	Defaults          DocumentationDefaults
 
 	// Deprecated: use DocumentationMode.
-	EnabledByDefault bool
-	RouteDecorators  []RouteDocDecorator
-	Profiles         map[string]DocProfile
-	Components       OpenAPIComponents
+	EnabledByDefault    bool
+	RouteDecorators     []RouteDocDecorator
+	Profiles            map[string]DocProfile
+	Components          OpenAPIComponents
+	SchemaRegistrations []SchemaRegistration
+	SecurityRules       []RouteSecurityRule
+}
+
+type OpenAPISchemaProvider interface {
+	OpenAPISchema() OpenAPISchema
+}
+
+type DirectionalOpenAPISchemaProvider interface {
+	OpenAPISchemaFor(direction SchemaDirection) OpenAPISchema
 }
 
 func BearerSecurityScheme(description string) *OpenAPISecurityScheme {

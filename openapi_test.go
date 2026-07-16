@@ -1,6 +1,7 @@
 package routekit
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -100,7 +101,10 @@ func baseConfig() OpenAPIConfig {
 		Title:            "Test API",
 		Version:          "1.0.0",
 		JSONPath:         "/openapi.json",
+		BasePath:         "/",
+		PathMode:         FullRegisteredPaths,
 		EnabledByDefault: true,
+		Defaults:         DocumentationDefaults{Responses: []DocResponse{{Status: 200, Description: "OK"}}},
 	}
 }
 
@@ -188,7 +192,7 @@ func TestTagsDefaultFromGroup(t *testing.T) {
 func TestGinPathParamConversion(t *testing.T) {
 	engine := newEngine()
 	group := newGroup(t, engine, "/api", "api", 123)
-	group.group.GET("/clients/:id", okHandler, "get client", 1).Document()
+	group.group.GET("/clients/:id", okHandler, "get client", 1).Document().PathParam("id", "string", true, "client ID")
 
 	ar := newTestEngine(t, group)
 	doc := buildDoc(t, ar, baseConfig())
@@ -200,7 +204,7 @@ func TestGinPathParamConversion(t *testing.T) {
 func TestGinWildcardPathConversion(t *testing.T) {
 	engine := newEngine()
 	group := newGroup(t, engine, "/files", "files", 123)
-	group.group.GET("/*path", okHandler, "get file", 1).Document()
+	group.group.GET("/*path", okHandler, "get file", 1).Document().PathParam("path", "string", true, "file path")
 
 	ar := newTestEngine(t, group)
 	doc := buildDoc(t, ar, baseConfig())
@@ -209,22 +213,18 @@ func TestGinWildcardPathConversion(t *testing.T) {
 	}
 }
 
-func TestAutoPathParamsCreatedWhenAbsent(t *testing.T) {
+func TestPathParamsMustBeDeclared(t *testing.T) {
 	engine := newEngine()
 	group := newGroup(t, engine, "/api", "api", 123)
 	group.group.GET("/clients/:id", okHandler, "get client", 1).Document()
 
 	ar := newTestEngine(t, group)
-	doc := buildDoc(t, ar, baseConfig())
-	params := doc.Paths["/api/clients/{id}"].Get.Parameters
-	var found bool
-	for _, p := range params {
-		if p.Name == "id" && p.In == "path" && p.Required {
-			found = true
-		}
+	if err := ar.RegisterRoutes(engine); err != nil {
+		t.Fatalf("RegisterRoutes: %v", err)
 	}
-	if !found {
-		t.Errorf("expected auto path param id, got %v", params)
+	_, err := BuildOpenAPI(ar.routes, baseConfig())
+	if err == nil || !strings.Contains(err.Error(), "has no matching parameter") {
+		t.Fatalf("expected missing path parameter error, got %v", err)
 	}
 }
 
@@ -275,6 +275,7 @@ func TestProfilesAddParamsAndSecurity(t *testing.T) {
 			Security: []string{"BearerAuth"},
 		},
 	}
+	config.Components.SecuritySchemes = map[string]*OpenAPISecurityScheme{"BearerAuth": BearerSecurityScheme("Bearer")}
 	ar := newTestEngine(t, group)
 	doc := buildDoc(t, ar, config)
 
@@ -320,6 +321,7 @@ func TestDecoratorModifiesOperation(t *testing.T) {
 	group.group.GET("/resource", okHandler, "resource", 1).Document()
 
 	config := baseConfig()
+	config.Components.SecuritySchemes = map[string]*OpenAPISecurityScheme{"BearerAuth": BearerSecurityScheme("Bearer")}
 	config.RouteDecorators = []RouteDocDecorator{
 		func(ctx *RouteDocContext) error {
 			ctx.Operation.AddHeader("X-Custom", "string", true, "custom header")
@@ -345,7 +347,7 @@ func TestDecoratorModifiesOperation(t *testing.T) {
 	}
 }
 
-func TestDecoratorAddResponseUsesInlineSchema(t *testing.T) {
+func TestDecoratorAddResponseUsesSharedComponents(t *testing.T) {
 	engine := newEngine()
 	group := newGroup(t, engine, "/api", "api", 123)
 	group.group.POST("/resource", okHandler, "resource", 1).Document()
@@ -364,11 +366,8 @@ func TestDecoratorAddResponseUsesInlineSchema(t *testing.T) {
 	if schema == nil {
 		t.Fatal("expected response schema")
 	}
-	if schema.Ref != "" {
-		t.Fatalf("decorator response schema should be inline, got ref %q", schema.Ref)
-	}
-	if schema.Type != "object" {
-		t.Fatalf("decorator response schema type = %q, want object", schema.Type)
+	if schema.Ref == "" {
+		t.Fatalf("decorator response schema should reuse a component, got %#v", schema)
 	}
 }
 
@@ -494,19 +493,20 @@ func TestBodyAndResponseUseJSONDefault(t *testing.T) {
 	}
 }
 
-func TestRouteWithoutResponseGetsDefault200(t *testing.T) {
+func TestRouteWithoutResponseIsRejected(t *testing.T) {
 	engine := newEngine()
 	group := newGroup(t, engine, "/api", "api", 123)
 	group.group.GET("/resource", okHandler, "resource", 1).Document()
 
 	ar := newTestEngine(t, group)
-	doc := buildDoc(t, ar, baseConfig())
-	resp, ok := doc.Paths["/api/resource"].Get.Responses["200"]
-	if !ok {
-		t.Fatal("expected default 200 response")
+	if err := ar.RegisterRoutes(engine); err != nil {
+		t.Fatalf("RegisterRoutes: %v", err)
 	}
-	if resp.Description != "OK" {
-		t.Errorf("description = %q, want OK", resp.Description)
+	config := baseConfig()
+	config.Defaults.Responses = nil
+	_, err := BuildOpenAPI(ar.routes, config)
+	if err == nil || !strings.Contains(err.Error(), "at least one response") {
+		t.Fatalf("expected missing response error, got %v", err)
 	}
 }
 
@@ -537,7 +537,7 @@ func TestSchemaReflection(t *testing.T) {
 
 	op := doc.Paths["/api/login"].Post
 	bodySchema := op.RequestBody.Content["application/json"].Schema
-	if bodySchema == nil || bodySchema.Ref == "" {
+	if bodySchema == nil || len(bodySchema.AnyOf) != 2 || bodySchema.AnyOf[0].Ref == "" {
 		t.Errorf("expected request body to use $ref, got %+v", bodySchema)
 	}
 }
@@ -567,7 +567,7 @@ func TestSchemaReflectionPrimitives(t *testing.T) {
 func TestSchemaReflectionSliceAndPointer(t *testing.T) {
 	reflector := newSchemaReflector()
 	s := reflector.schemaFromValue([]string{"x"})
-	if s.Type != "array" || s.Items == nil || s.Items.Type != "string" {
+	if len(s.AnyOf) != 2 || s.AnyOf[0].Type != "array" || s.AnyOf[0].Items == nil || s.AnyOf[0].Items.Type != "string" {
 		t.Errorf("slice schema = %+v", s)
 	}
 
@@ -575,7 +575,7 @@ func TestSchemaReflectionSliceAndPointer(t *testing.T) {
 	if s2 == nil {
 		t.Skip("nil pointer type not reflectable")
 	}
-	if s2.Type != "string" {
+	if len(s2.AnyOf) != 2 || s2.AnyOf[0].Type != "string" || s2.AnyOf[1].Type != "null" {
 		t.Errorf("pointer schema = %+v", s2)
 	}
 }
@@ -623,6 +623,14 @@ func TestOpenAPIEndpointServesCachedJSON(t *testing.T) {
 	if err := ar.RegisterRoutes(engine2); err != nil {
 		t.Fatalf("RegisterRoutes: %v", err)
 	}
+	expectedDocument, err := ar.BuildOpenAPI(baseConfig())
+	if err != nil {
+		t.Fatalf("BuildOpenAPI: %v", err)
+	}
+	expectedPayload, err := MarshalOpenAPI(expectedDocument)
+	if err != nil {
+		t.Fatalf("MarshalOpenAPI: %v", err)
+	}
 	if err := ar.RegisterOpenAPI(engine2, baseConfig()); err != nil {
 		t.Fatalf("RegisterOpenAPI: %v", err)
 	}
@@ -634,12 +642,15 @@ func TestOpenAPIEndpointServesCachedJSON(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
+	if !bytes.Equal(rec.Body.Bytes(), expectedPayload) {
+		t.Fatalf("served payload differs from MarshalOpenAPI\nserved: %s\nexpected: %s", rec.Body.Bytes(), expectedPayload)
+	}
 	var doc OpenAPIDocument
 	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
 		t.Fatalf("invalid json: %v\nbody: %s", err, rec.Body.String())
 	}
-	if doc.OpenAPI != "3.0.3" {
-		t.Errorf("openapi = %q, want 3.0.3", doc.OpenAPI)
+	if doc.OpenAPI != "3.1.0" || doc.JSONSchemaDialect != jsonSchemaDialect202012 {
+		t.Errorf("OpenAPI metadata = %q %q", doc.OpenAPI, doc.JSONSchemaDialect)
 	}
 	if _, ok := doc.Paths["/api/resource"]; !ok {
 		t.Errorf("expected /api/resource in served doc, got %s", rec.Body.String())

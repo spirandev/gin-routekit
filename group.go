@@ -40,9 +40,9 @@ func (rg *RouterGroup) Use(middleware ...gin.HandlerFunc) {
 	rg.middlewares = append(rg.middlewares, middleware...)
 }
 
-func (rg *RouterGroup) UseDocumented(middleware gin.HandlerFunc, metadata MiddlewareMetadata) {
+func (rg *RouterGroup) UseDocumented(middleware gin.HandlerFunc, contributions ...DocumentationContribution) {
 	rg.middlewares = append(rg.middlewares, middleware)
-	rg.groupMiddlewareMetadata = append(rg.groupMiddlewareMetadata, cloneMiddlewareMetadata(metadata))
+	rg.groupMiddlewareMetadata = append(rg.groupMiddlewareMetadata, metadataFromContributions(contributions))
 }
 
 func (rg *RouterGroup) GET(relativePath string, handler gin.HandlerFunc, description string, routeID int32) *RouteConfig {
@@ -153,11 +153,21 @@ func (rc *RouteConfig) Use(middleware ...gin.HandlerFunc) *RouteConfig {
 	return rc
 }
 
-func (rc *RouteConfig) UseDocumented(middleware gin.HandlerFunc, metadata MiddlewareMetadata) *RouteConfig {
+func (rc *RouteConfig) UseDocumented(middleware gin.HandlerFunc, contributions ...DocumentationContribution) *RouteConfig {
 	def := &rc.group.definitions[rc.index]
 	def.Middleware = append(def.Middleware, middleware)
-	def.MiddlewareMetadata = append(def.MiddlewareMetadata, cloneMiddlewareMetadata(metadata))
+	def.MiddlewareMetadata = append(def.MiddlewareMetadata, metadataFromContributions(contributions))
 	return rc
+}
+
+func metadataFromContributions(contributions []DocumentationContribution) MiddlewareMetadata {
+	var metadata MiddlewareMetadata
+	for _, contribution := range contributions {
+		if contribution != nil {
+			contribution.applyDocumentation(&metadata)
+		}
+	}
+	return cloneMiddlewareMetadata(metadata)
 }
 
 func (rc *RouteConfig) ensureDoc() *DocConfig {
