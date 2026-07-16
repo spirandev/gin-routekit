@@ -14,7 +14,7 @@ import (
 
 var errRegisterRoutesRequired = errors.New("RegisterRoutes must be called before OpenAPI operations")
 
-const jsonSchemaDialect202012 = "https://json-schema.org/draft/2020-12/schema"
+const jsonSchemaDialectOAS31Base = "https://spec.openapis.org/oas/3.1/dialect/base"
 
 func ValidateOpenAPI(routes []Route, config OpenAPIConfig) (DiagnosticReport, error) {
 	_, report := buildOpenAPI(routes, config)
@@ -38,7 +38,7 @@ func buildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, Diagn
 	validateOpenAPIConfig(config, collector)
 	reflector := newSchemaReflector(config, collector)
 	document := &OpenAPIDocument{
-		OpenAPI: "3.1.0", JSONSchemaDialect: jsonSchemaDialect202012,
+		OpenAPI: "3.1.0", JSONSchemaDialect: jsonSchemaDialectOAS31Base,
 		Info:  OpenAPIInfo{Title: config.Title, Description: config.Description, Version: config.Version},
 		Paths: OpenAPIPaths{},
 	}

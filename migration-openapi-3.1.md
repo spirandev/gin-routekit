@@ -4,7 +4,7 @@ Esta entrega altera o contrato de geracao OpenAPI e a semantica do pacote `jsone
 
 ## Resumo das mudancas incompativeis
 
-- o documento passa de OpenAPI 3.0.3 para OpenAPI 3.1.0, com `jsonSchemaDialect` JSON Schema 2020-12;
+- o documento passa de OpenAPI 3.0.3 para OpenAPI 3.1.0, com o dialect base da OAS 3.1 em `jsonSchemaDialect`, fundamentado no JSON Schema 2020-12;
 - `OpenAPIConfig.BasePath` e `OpenAPIConfig.PathMode` passam a ser obrigatorios;
 - operacoes sem response deixam de receber `200 OK` implicito e agora sao invalidas;
 - schemas passam a ser direcionais, com required, nulabilidade, fields e codecs diferentes para request e response quando necessario;

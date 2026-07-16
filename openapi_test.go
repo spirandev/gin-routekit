@@ -649,7 +649,7 @@ func TestOpenAPIEndpointServesCachedJSON(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
 		t.Fatalf("invalid json: %v\nbody: %s", err, rec.Body.String())
 	}
-	if doc.OpenAPI != "3.1.0" || doc.JSONSchemaDialect != jsonSchemaDialect202012 {
+	if doc.OpenAPI != "3.1.0" || doc.JSONSchemaDialect != "https://spec.openapis.org/oas/3.1/dialect/base" {
 		t.Errorf("OpenAPI metadata = %q %q", doc.OpenAPI, doc.JSONSchemaDialect)
 	}
 	if _, ok := doc.Paths["/api/resource"]; !ok {
