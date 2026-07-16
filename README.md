@@ -1,7 +1,7 @@
 # gin-routekit
 gin-routekit is a reusable Go library that encapsulates a fluent route definition pattern for Gin applications. It supports route grouping, per-route metadata, authentication and authorization middleware configuration, route context injection, and a generic AppRouter for registering and syncing routes across projects.
 
-For an end-to-end reference covering routes, middleware, AppRouter, OpenAPI, Swagger UI and typed JSON endpoints, see the [complete usage guide](docs/guia-completo.md).
+For an end-to-end reference covering routes, middleware, AppRouter, OpenAPI, Swagger UI and typed JSON endpoints, see the [complete usage guide](guia-completo.md).
 
 ## OpenAPI Automation
 
@@ -288,4 +288,4 @@ config.Profiles = map[string]routekit.DocProfile{
 
 Profiles actually used by documented operations are emitted in the top-level `x-routekit-profiles` extension, including `description` when set. Unknown profiles and incompatible profile parameters are errors; duplicate use is a warning.
 
-See [Migrating to OpenAPI 3.1 and fidelity diagnostics](docs/migration-openapi-3.1.md) for breaking changes and before/after examples.
+See [Migrating to OpenAPI 3.1 and fidelity diagnostics](migration-openapi-3.1.md) for breaking changes and before/after examples.

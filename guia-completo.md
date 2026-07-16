@@ -1479,7 +1479,7 @@ Use handlers Gin tradicionais para:
 - handlers que escrevem varias respostas;
 - fluxos que precisam controlar o writer diretamente.
 
-O guia especializado esta em [jsonendpoint.md](jsonendpoint.md).
+O guia especializado esta em [jsonendpoint.md](docs/jsonendpoint.md).
 
 ## Validacao, testes e CI
 
@@ -1760,7 +1760,7 @@ jsonendpoint.WithStrictWriter
 
 ## Leitura adicional
 
-- [README principal](../README.md)
-- [Guia especializado do jsonendpoint](jsonendpoint.md)
+- [README principal](README.md)
+- [Guia especializado do jsonendpoint](docs/jsonendpoint.md)
 - [Migracao para OpenAPI 3.1](migration-openapi-3.1.md)
-- [ADR do endpoint JSON tipado](decisions/0001-typed-json-endpoint.md)
+- [ADR do endpoint JSON tipado](docs/decisions/0001-typed-json-endpoint.md)
