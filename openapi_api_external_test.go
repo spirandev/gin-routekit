@@ -18,8 +18,11 @@ func TestOpenAPIPublicAPICompiles(t *testing.T) {
 	var _ func([]routekit.Route, routekit.OpenAPIConfig) (routekit.DiagnosticReport, error) = routekit.ValidateOpenAPI
 	var _ func([]routekit.Route, routekit.OpenAPIConfig) (*routekit.OpenAPIDocument, error) = routekit.BuildOpenAPI
 	var _ func(*routekit.OpenAPIDocument) ([]byte, error) = routekit.MarshalOpenAPI
+	var _ func(*routekit.OpenAPIDocument, routekit.HTTPClientConfig) ([]byte, error) = routekit.MarshalHTTPClient
 	var _ func(*routekit.AppRouter, routekit.OpenAPIConfig) (routekit.DiagnosticReport, error) = (*routekit.AppRouter).ValidateOpenAPI
 	var _ func(*routekit.AppRouter, routekit.OpenAPIConfig) (*routekit.OpenAPIDocument, error) = (*routekit.AppRouter).BuildOpenAPI
+	var _ func(*routekit.AppRouter, routekit.OpenAPIConfig, routekit.HTTPClientConfig) ([]byte, error) = (*routekit.AppRouter).BuildHTTPClient
+	_ = routekit.HTTPClientConfig{BaseURLVariable: "baseUrl", BaseURL: "https://api.example.com"}
 
 	requestContract := routekit.JSONRequestContractOf[compileRequest, compileResponse](http.StatusCreated, "Created")
 	responseContract := routekit.JSONResponseContractOf[compileResponse](http.StatusOK, "OK")

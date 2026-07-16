@@ -43,9 +43,12 @@ if err != nil {
 	return err
 }
 payload, err := routekit.MarshalOpenAPI(document)
+httpPayload, err := routekit.MarshalHTTPClient(document, routekit.HTTPClientConfig{
+	BaseURL: "https://api.example.com",
+})
 ```
 
-`ValidateOpenAPI` returns a `DiagnosticReport` even when it also returns a `*DiagnosticsError`; warnings do not block a build. `BuildOpenAPI` returns no document when errors are present. `MarshalOpenAPI` produces the deterministic, indented JSON payload without registering an HTTP endpoint.
+`ValidateOpenAPI` returns a `DiagnosticReport` even when it also returns a `*DiagnosticsError`; warnings do not block a build. `BuildOpenAPI` returns no document when errors are present. `MarshalOpenAPI` produces the deterministic, indented JSON payload without registering an HTTP endpoint. The same built document can also be serialized with `MarshalHTTPClient` as a `.http` file for the IntelliJ/JetBrains HTTP Client.
 
 An `AppRouter` exposes the same validation and build operations after its route snapshot has been registered:
 
@@ -56,9 +59,12 @@ if err := appRouter.RegisterRoutes(engine); err != nil {
 report, err := appRouter.ValidateOpenAPI(config)
 document, err := appRouter.BuildOpenAPI(config)
 err = appRouter.RegisterOpenAPI(engine, config)
+httpPayload, err := appRouter.BuildHTTPClient(config, routekit.HTTPClientConfig{
+	BaseURL: "https://api.example.com",
+})
 ```
 
-`AppRouter.ValidateOpenAPI` and `AppRouter.BuildOpenAPI` require `RegisterRoutes`. Neither method registers an OpenAPI endpoint or starts a server. `RegisterOpenAPI` builds and marshals through the same pipeline, then registers `JSONPath` (default `/openapi.json`). Package-level `ValidateOpenAPI` and `BuildOpenAPI` remain useful for snapshots and route subsets.
+`AppRouter.ValidateOpenAPI`, `AppRouter.BuildOpenAPI` and `AppRouter.BuildHTTPClient` require `RegisterRoutes`. None of these build methods registers an OpenAPI endpoint or starts a server. `RegisterOpenAPI` builds and marshals through the same pipeline, then registers `JSONPath` (default `/openapi.json`). Package-level `ValidateOpenAPI` and `BuildOpenAPI` remain useful for snapshots and route subsets.
 
 ### Group Defaults
 

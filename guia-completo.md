@@ -945,6 +945,39 @@ payload, err := routekit.MarshalOpenAPI(document)
 
 O resultado e JSON indentado e deterministico para o mesmo documento.
 
+### Gerar arquivo .http para IntelliJ
+
+```go
+payload, err := appRouter.BuildHTTPClient(config, routekit.HTTPClientConfig{
+	BaseURL: "https://api.example.com",
+})
+if err != nil {
+	return err
+}
+if err := os.WriteFile("api.http", payload, 0644); err != nil {
+	return err
+}
+```
+
+Tambem e possivel usar o documento ja construido:
+
+```go
+document, err := routekit.BuildOpenAPI(routes, config)
+if err != nil {
+	return err
+}
+payload, err := routekit.MarshalHTTPClient(document, routekit.HTTPClientConfig{
+	BaseURLVariable: "baseUrl",
+	BaseURL:         "https://api.example.com",
+})
+```
+
+`HTTPClientConfig.BaseURL` tem precedencia sobre `Servers`. Quando `BaseURL` fica vazio, o gerador usa o primeiro server absoluto `http://` ou `https://` do documento. Se nao houver URL absoluta, a geracao retorna erro para evitar requests relativas invalidas no HTTP Client.
+
+`BaseURLVariable` usa `baseUrl` por default e aparece nas requests como `{{baseUrl}}`. Parametros sem exemplo viram placeholders derivados do local e do nome, como `{{pathId}}`, `{{queryPage}}` e `{{headerXRequestID}}`. Parametros e bodies com exemplo usam os valores do OpenAPI; bodies JSON sem exemplo recebem um payload estavel gerado a partir do schema e de `components.schemas`.
+
+O suporte inicial de autenticacao gera headers Bearer e API key em header ou query. OAuth2, OpenID Connect e auth HTTP nao-bearer sao ignorados nesta versao e aparecem como comentario no bloco gerado.
+
 ### Registrar o endpoint JSON
 
 ```go
@@ -1721,6 +1754,7 @@ AppRouter.RegisterRoutes
 AppRouter.Routes
 AppRouter.ValidateOpenAPI
 AppRouter.BuildOpenAPI
+AppRouter.BuildHTTPClient
 AppRouter.RegisterOpenAPI
 AppRouter.RegisterSwaggerUI
 ```
@@ -1731,6 +1765,8 @@ AppRouter.RegisterSwaggerUI
 routekit.ValidateOpenAPI
 routekit.BuildOpenAPI
 routekit.MarshalOpenAPI
+routekit.MarshalHTTPClient
+routekit.HTTPClientConfig
 routekit.DiagnosticReport.HasErrors
 routekit.SchemaOf
 routekit.SchemaWithExample
