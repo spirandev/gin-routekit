@@ -1315,7 +1315,7 @@ Title:      API Docs
 CDNBaseURL: https://unpkg.com/swagger-ui-dist
 ```
 
-Configuracao completa:
+Configuracao para spec unica:
 
 ```go
 err := appRouter.RegisterSwaggerUI(engine, routekit.SwaggerUIConfig{
@@ -1326,11 +1326,33 @@ err := appRouter.RegisterSwaggerUI(engine, routekit.SwaggerUIConfig{
 })
 ```
 
+Configuracao para multiplas specs:
+
+```go
+err := appRouter.RegisterSwaggerUI(engine, routekit.SwaggerUIConfig{
+	Path:  "/docs",
+	Title: "Core API Documentation",
+	OpenAPIURLs: []routekit.SwaggerUISpec{
+		{Name: "Core API", URL: "/openapi.json"},
+		{Name: "Attendance System", URL: "/docs/spec/attendance-system"},
+		{Name: "EvoBridge", URL: "/docs/spec/evobridge-middleware"},
+	},
+	PrimaryOpenAPIName: "Core API",
+})
+```
+
+`OpenAPIURLs` ativa o seletor nativo de APIs da Swagger UI via opcao `urls`. Se `PrimaryOpenAPIName` ficar vazio, a primeira spec vira a primaria. Quando `OpenAPIURLs` estiver preenchido, `OpenAPIURL` e ignorado.
+
+URLs externas precisam de CORS habilitado no servidor da especificacao porque a Swagger UI roda no navegador. A biblioteca nao busca nem faz proxy server-side das especificacoes.
+
 Regras:
 
 - `Path` precisa comecar com `/`.
 - `Path` nao pode conter parametros `:id` nem wildcards `*path`.
-- `OpenAPIURL` precisa comecar com `/`, `http://` ou `https://`. O helper nao faz parsing completo da URL.
+- Em modo de spec unica, `OpenAPIURL` precisa comecar com `/`, `http://` ou `https://`. O helper nao faz parsing completo da URL.
+- Em modo de multiplas specs, cada item de `OpenAPIURLs` precisa ter `Name` obrigatorio e unico.
+- Em modo de multiplas specs, cada `URL` precisa comecar com `/`, `http://` ou `https://`.
+- Em modo de multiplas specs, `PrimaryOpenAPIName`, quando informado, precisa corresponder a um `Name` existente.
 - `CDNBaseURL` precisa comecar com `http://` ou `https://`.
 - O helper usa arquivos do CDN no navegador; ambientes sem acesso externo precisam configurar um CDN acessivel.
 - Registrar Swagger UI nao registra o JSON OpenAPI. Use tambem `RegisterOpenAPI` ou informe outra `OpenAPIURL`.
