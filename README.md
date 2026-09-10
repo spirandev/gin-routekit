@@ -66,6 +66,17 @@ httpPayload, err := appRouter.BuildHTTPClient(config, routekit.HTTPClientConfig{
 
 `AppRouter.ValidateOpenAPI`, `AppRouter.BuildOpenAPI` and `AppRouter.BuildHTTPClient` require `RegisterRoutes`. None of these build methods registers an OpenAPI endpoint or starts a server. `RegisterOpenAPI` builds and marshals through the same pipeline, then registers `JSONPath` (default `/openapi.json`). Package-level `ValidateOpenAPI` and `BuildOpenAPI` remain useful for snapshots and route subsets.
 
+### Documentation endpoints
+
+| Endpoint | Source | Renderer |
+|---|---|---|
+| `/openapi.json` | `RegisterOpenAPI` (dynamic) | — |
+| `/swagger` | `RegisterSwaggerUI(Path: "/swagger")` | Swagger UI |
+| `/stoplight` | `RegisterStoplightUI(Path: "/stoplight")` | Stoplight Elements |
+| `/docs` | `RegisterDocsPortal` (phase 3) | Docusaurus + Elements runtime |
+
+Swagger UI and Stoplight Elements keep `/docs` as their default path for backward compatibility. Enabling the docs portal (default `/docs`) therefore requires an explicit `Path` on the UI configs. The portal detects route conflicts and returns a friendly error instead of letting Gin panic. See [ADR 0002](docs/decisions/0002-docusaurus-docs-portal.md) for the underlying decision.
+
 ### Group Defaults
 
 Groups can provide shared documentation defaults without mutating endpoint `DocConfig`:
