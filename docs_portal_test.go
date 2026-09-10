@@ -107,6 +107,28 @@ func TestRegisterDocsPortalSPAFallback(t *testing.T) {
 	assertContains(t, rec.Header().Get("Cache-Control"), "no-store")
 }
 
+func TestRegisterDocsPortalDirectoryIndex(t *testing.T) {
+	engine := newEngine()
+	assets := fstest.MapFS{
+		"index.html":        {Data: []byte("<html><body>docs portal index</body></html>")},
+		"guides/index.html": {Data: []byte("<html><body>guides index</body></html>")},
+		"guides/intro.html": {Data: []byte("<html>intro</html>")},
+	}
+	if err := registerTestDocsPortal(t, engine, DocsPortalConfig{Assets: assets}); err != nil {
+		t.Fatalf("RegisterDocsPortal: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/docs/guides", nil)
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	assertContains(t, rec.Body.String(), "guides index")
+	assertContains(t, rec.Header().Get("Cache-Control"), "no-store")
+}
+
 func TestRegisterDocsPortalUnknownWithExtension404(t *testing.T) {
 	engine := newEngine()
 	if err := registerTestDocsPortal(t, engine, DocsPortalConfig{Assets: docsPortalTestFS()}); err != nil {

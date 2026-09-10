@@ -8,7 +8,19 @@ type OpenAPIDocument struct {
 	Paths             OpenAPIPaths              `json:"paths"`
 	Components        *OpenAPIComponents        `json:"components,omitempty"`
 	Tags              []OpenAPITag              `json:"tags,omitempty"`
+	TagGroups         []OpenAPITagGroup         `json:"x-tagGroups,omitempty"`
 	RoutekitProfiles  map[string]OpenAPIProfile `json:"x-routekit-profiles,omitempty"`
+	RoutekitDocs      *OpenAPIDocsMetadata      `json:"x-routekit-docs,omitempty"`
+}
+
+type OpenAPITagGroup struct {
+	Name        string   `json:"name"`
+	Tags        []string `json:"tags"`
+	Description string   `json:"description,omitempty"`
+}
+
+type OpenAPIDocsMetadata struct {
+	Sections map[string][]string `json:"sections,omitempty"`
 }
 
 type OpenAPIProfile struct {
@@ -163,6 +175,7 @@ type OpenAPIConfig struct {
 	PathMode    PathMode
 
 	DocumentationMode DocumentationMode
+	TagGroups         []OpenAPITagGroup
 	Defaults          DocumentationDefaults
 
 	// Deprecated: use DocumentationMode.

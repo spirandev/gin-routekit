@@ -48,6 +48,7 @@ func buildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, Diagn
 	tagNames := map[string]bool{}
 	usedProfiles := map[string]bool{}
 	usedSchemes := map[string]bool{}
+	sections := map[string][]string{}
 	for _, route := range cloneRoutes(routes) {
 		for _, handler := range route.Handlers {
 			resolved, err := resolveRouteDocumentation(config, route, handler, collector)
@@ -98,6 +99,9 @@ func buildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, Diagn
 			if !pathOK || !methodValid {
 				continue
 			}
+			if len(resolved.Section) > 0 {
+				sections[operation.OperationID] = append([]string(nil), resolved.Section...)
+			}
 			item := document.Paths[pathKey]
 			if err := setMethod(&item, handler.Method, operation); err != nil {
 				collector.route("operation.duplicate", DiagnosticError, route, handler, "paths", fmt.Sprintf("path %q: %v", pathKey, err))
@@ -117,6 +121,7 @@ func buildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, Diagn
 		}
 	}
 	document.Tags = sortedTags(tagNames)
+	document.TagGroups = applyTagGroups(config, tagNames, collector)
 	if len(usedProfiles) > 0 {
 		document.RoutekitProfiles = map[string]OpenAPIProfile{}
 		for name := range usedProfiles {
@@ -125,7 +130,33 @@ func buildOpenAPI(routes []Route, config OpenAPIConfig) (*OpenAPIDocument, Diagn
 			}
 		}
 	}
+	if len(sections) > 0 {
+		document.RoutekitDocs = &OpenAPIDocsMetadata{Sections: sections}
+	}
 	return document, collector.report()
+}
+
+func applyTagGroups(config OpenAPIConfig, tagNames map[string]bool, collector *diagnosticCollector) []OpenAPITagGroup {
+	if len(config.TagGroups) == 0 {
+		return nil
+	}
+	seenNames := map[string]bool{}
+	groups := cloneTagGroups(config.TagGroups)
+	for index, group := range groups {
+		if group.Name == "" {
+			collector.add(Diagnostic{Code: "tag_groups.name.invalid", Severity: DiagnosticError, Location: fmt.Sprintf("config.tagGroups[%d].name", index), Message: "tag group name must not be empty"})
+		}
+		if seenNames[group.Name] {
+			collector.add(Diagnostic{Code: "tag_groups.name.duplicate", Severity: DiagnosticError, Location: fmt.Sprintf("config.tagGroups[%d].name", index), Message: fmt.Sprintf("duplicate tag group name %q", group.Name)})
+		}
+		seenNames[group.Name] = true
+		for tagIndex, tag := range group.Tags {
+			if !tagNames[tag] {
+				collector.add(Diagnostic{Code: "tag_groups.tag.unknown", Severity: DiagnosticError, Location: fmt.Sprintf("config.tagGroups[%d].tags[%d]", index, tagIndex), Message: fmt.Sprintf("tag group %q references tag %q which is not emitted by the document", group.Name, tag)})
+			}
+		}
+	}
+	return groups
 }
 
 func flattenErrors(err error) []error {

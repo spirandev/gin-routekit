@@ -15,6 +15,7 @@ This builds the Docusaurus site into `go/portal-build/` and starts the demo. The
 | Endpoint | Check |
 |---|---|
 | `http://localhost:8080/docs` | Portal renders (dark mode by default), guides and changelog navigate |
+| `http://localhost:8080/docs/endpoints` | Endpoint map derived from `x-routekit-docs.sections` + `operation.deprecated` |
 | `http://localhost:8080/docs/api-reference` | Elements loads `/openapi.json` served by the Go process |
 | `curl -s localhost:8080/openapi.json \| jq '.paths \| keys'` | Lists `/api/v1/instances` and `/api/v2/instances` |
 | `curl -s localhost:8080/openapi.json \| jq '.paths."/api/v1/instances".get.deprecated'` | `true` — v1 group is deprecated via `WithDeprecatedEndpoints()` |

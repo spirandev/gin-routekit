@@ -12,6 +12,7 @@ type resolvedDocumentation struct {
 	Summary             string
 	Description         string
 	Tags                []string
+	Section             []string
 	OperationID         string
 	Parameters          []DocParam
 	RequestBody         *DocBody
@@ -114,6 +115,7 @@ func resolveRouteDocumentation(config OpenAPIConfig, route Route, handler Handle
 	description := ""
 	tags := []string{route.Group}
 	operationID := ""
+	var section []string
 	deprecated := config.Defaults.Deprecated ||
 		route.DocumentationDefaults.Deprecated ||
 		(handler.Doc != nil && handler.Doc.Deprecated)
@@ -127,6 +129,9 @@ func resolveRouteDocumentation(config OpenAPIConfig, route Route, handler Handle
 		if len(handler.Doc.Tags) > 0 {
 			tags = append([]string(nil), handler.Doc.Tags...)
 		}
+		if len(handler.Doc.Section) > 0 {
+			section = append([]string(nil), handler.Doc.Section...)
+		}
 		operationID = handler.Doc.OperationID
 	}
 
@@ -136,6 +141,7 @@ func resolveRouteDocumentation(config OpenAPIConfig, route Route, handler Handle
 		Summary:             summary,
 		Description:         description,
 		Tags:                tags,
+		Section:             section,
 		OperationID:         operationID,
 		Parameters:          cloneDocParams(acc.parameters),
 		RequestBody:         cloneDocBody(acc.requestBody),

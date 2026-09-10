@@ -121,6 +121,39 @@ Behavior:
 
 Coexistence follows the [documentation endpoints](#documentation-endpoints) table: Swagger UI and Stoplight Elements keep `/docs` as their default path, so give them an explicit `Path` when the portal uses the default. The portal detects route conflicts at registration and returns a friendly error (`docs portal path "..." conflicts with registered route "..."`) instead of letting Gin panic.
 
+### Hierarchical docs metadata
+
+Two independent, opt-in extensions represent a `Resource → Version → Status → Endpoint` view without changing `tags` semantics or the default document:
+
+**`x-tagGroups`** (Redoc convention, consumed by `docusaurus-plugin-openapi-docs` via `groupPathsBy`) groups existing tags into categories:
+
+```go
+config.TagGroups = []routekit.OpenAPITagGroup{
+	{Name: "Instances", Tags: []string{"instances-v1", "instances-v2"}, Description: "Instance management"},
+}
+```
+
+Referencing a tag the document does not emit, empty group names and duplicate group names are validation errors (`tag_groups.*` diagnostics). Operation tags never change; groups are a view over tags.
+
+**`x-routekit-docs.sections`** records a logical section path per operation, keyed by the final `operationId`, for custom frontends to build deeper trees:
+
+```go
+group.GET("/v1/instances", listInstances, "List instances", 10).
+	Document().
+	Section("Instances", "V1").
+	Response(200, "OK", nil)
+```
+
+```json
+"x-routekit-docs": {
+	"sections": {
+		"get_instances_v1_list_instances": ["Instances", "V1"]
+	}
+}
+```
+
+The "Deprecated vs Current" dimension is deliberately **not** recorded in the extension: derive it from `operation.deprecated` so the contract stays the single source of truth. Without `TagGroups` or `Section` the document is byte-identical to before (guarded by a golden test).
+
 ### Group Defaults
 
 Groups can provide shared documentation defaults without mutating endpoint `DocConfig`:

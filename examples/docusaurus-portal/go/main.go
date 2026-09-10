@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	routekit "github.com/spirandev/gin-routekit"
@@ -44,8 +45,10 @@ func main() {
 			routekit.WithDefaultResponse(500, "Internal Server Error", routekit.SchemaOf[errorResponse]()),
 		)
 		group.GET("", listInstancesV1, "List instances (v1)", 10).
+			Section("Instances", "V1").
 			Response(200, "OK", routekit.SchemaOf[[]instanceResponse]())
 		group.POST("", createInstanceV1, "Create instance (v1)", 11).
+			Section("Instances", "V1").
 			Body(routekit.SchemaOf[createInstanceRequest]()).
 			Response(201, "Created", routekit.SchemaOf[instanceResponse]())
 		return group.Export("instances-v1", 1)
@@ -57,8 +60,10 @@ func main() {
 			routekit.WithDefaultResponse(500, "Internal Server Error", routekit.SchemaOf[errorResponse]()),
 		)
 		group.GET("", listInstancesV2, "List instances", 20).
+			Section("Instances", "V2").
 			Response(200, "OK", routekit.SchemaOf[[]instanceResponse]())
 		group.POST("", createInstanceV2, "Create instance", 21).
+			Section("Instances", "V2").
 			Body(routekit.SchemaOf[createInstanceRequest]()).
 			Response(201, "Created", routekit.SchemaOf[instanceResponse]())
 		return group.Export("instances-v2", 1)
@@ -99,14 +104,19 @@ func main() {
 		log.Fatalf("RegisterDocsPortal: %v", err)
 	}
 
-	log.Println("demo listening on http://localhost:8080")
-	log.Println("  docs portal    : http://localhost:8080/docs")
-	log.Println("  api reference  : http://localhost:8080/docs/api-reference")
-	log.Println("  openapi.json   : http://localhost:8080/openapi.json")
-	log.Println("  stoplight UI   : http://localhost:8080/stoplight")
-	log.Println("  swagger UI     : http://localhost:8080/swagger")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("demo listening on http://localhost:%s", port)
+	log.Printf("  docs portal    : http://localhost:%s/docs", port)
+	log.Printf("  api reference  : http://localhost:%s/docs/api-reference", port)
+	log.Printf("  endpoint map   : http://localhost:%s/docs/endpoints", port)
+	log.Printf("  openapi.json   : http://localhost:%s/openapi.json", port)
+	log.Printf("  stoplight UI   : http://localhost:%s/stoplight", port)
+	log.Printf("  swagger UI     : http://localhost:%s/swagger", port)
 
-	if err := engine.Run(":8080"); err != nil {
+	if err := engine.Run(":" + port); err != nil {
 		log.Fatalf("run: %v", err)
 	}
 }

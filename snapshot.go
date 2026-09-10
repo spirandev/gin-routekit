@@ -78,6 +78,7 @@ func cloneDocConfig(doc *DocConfig) *DocConfig {
 		Summary:     doc.Summary,
 		Description: doc.Description,
 		Tags:        append([]string(nil), doc.Tags...),
+		Section:     append([]string(nil), doc.Section...),
 		OperationID: doc.OperationID,
 		Profiles:    append([]string(nil), doc.Profiles...),
 		Headers:     cloneDocParams(doc.Headers),
@@ -173,6 +174,21 @@ func cloneDocumentationDefaults(defaults DocumentationDefaults) DocumentationDef
 		RequestContentType:  defaults.RequestContentType,
 		ResponseContentType: defaults.ResponseContentType,
 	}
+}
+
+func cloneTagGroups(groups []OpenAPITagGroup) []OpenAPITagGroup {
+	if groups == nil {
+		return nil
+	}
+	cloned := make([]OpenAPITagGroup, len(groups))
+	for index, group := range groups {
+		cloned[index] = OpenAPITagGroup{
+			Name:        group.Name,
+			Tags:        append([]string(nil), group.Tags...),
+			Description: group.Description,
+		}
+	}
+	return cloned
 }
 
 func cloneMiddlewareMetadata(metadata MiddlewareMetadata) MiddlewareMetadata {

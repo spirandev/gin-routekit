@@ -141,6 +141,15 @@ func serveDocsPortal(files fs.FS, index string) gin.HandlerFunc {
 			c.Status(http.StatusNotFound)
 			return
 		}
+		// Directories resolve to their own index page (static hosting
+		// convention; Docusaurus emits <page>/index.html) before the SPA
+		// fallback to the root index.
+		if indexTarget := cleaned + "/" + index; indexTarget != index {
+			if info, err := fs.Stat(files, indexTarget); err == nil && !info.IsDir() {
+				serveDocsFile(c, files, indexTarget)
+				return
+			}
+		}
 		serveDocsFile(c, files, index)
 	}
 }

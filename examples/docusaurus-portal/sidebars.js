@@ -12,6 +12,7 @@ const sidebars = {
         { type: 'doc', id: 'guides/webhooks', label: 'Webhooks' },
       ],
     },
+    { type: 'doc', id: 'endpoints', label: 'Endpoint map' },
     { type: 'doc', id: 'changelog', label: 'Changelog' },
     // The API Reference is a client-side page rendering Stoplight Elements
     // from the runtime /openapi.json served by the Go binary.

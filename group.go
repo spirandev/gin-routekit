@@ -2,6 +2,7 @@ package routekit
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -194,6 +195,20 @@ func (rc *RouteConfig) HideFromDocs() *RouteConfig {
 
 func (rc *RouteConfig) Deprecated() *RouteConfig {
 	rc.ensureDoc().Deprecated = true
+	return rc
+}
+
+func (rc *RouteConfig) Section(path ...string) *RouteConfig {
+	trimmed := make([]string, 0, len(path))
+	for _, segment := range path {
+		if segment = strings.TrimSpace(segment); segment != "" {
+			trimmed = append(trimmed, segment)
+		}
+	}
+	if len(trimmed) == 0 {
+		return rc
+	}
+	rc.ensureDoc().Section = trimmed
 	return rc
 }
 

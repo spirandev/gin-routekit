@@ -16,6 +16,7 @@ type DocConfig struct {
 	Summary     string
 	Description string
 	Tags        []string
+	Section     []string
 	OperationID string
 	Profiles    []string
 
