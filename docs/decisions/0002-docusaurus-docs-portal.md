@@ -4,7 +4,7 @@ Date: 2026-09-10
 
 ## Status
 
-Accepted.
+Superseded by [ADR 0003](0003-runtime-documentation-ui.md). The static portal and its Node build pipeline were removed; the runtime-first contract principles below remain in force.
 
 ## Context
 

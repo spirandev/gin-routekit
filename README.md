@@ -73,9 +73,8 @@ httpPayload, err := appRouter.BuildHTTPClient(config, routekit.HTTPClientConfig{
 | `/openapi.json` | `RegisterOpenAPI` (dynamic) | — |
 | `/swagger` | `RegisterSwaggerUI(Path: "/swagger")` | Swagger UI |
 | `/stoplight` | `RegisterStoplightUI(Path: "/stoplight")` | Stoplight Elements |
-| `/docs` | `RegisterDocsPortal` (phase 3) | Docusaurus + Elements runtime |
 
-Swagger UI and Stoplight Elements keep `/docs` as their default path for backward compatibility. Enabling the docs portal (default `/docs`) therefore requires an explicit `Path` on the UI configs. The portal detects route conflicts and returns a friendly error instead of letting Gin panic. See [ADR 0002](docs/decisions/0002-docusaurus-docs-portal.md) for the underlying decision.
+Both UIs default to `/docs` for backward compatibility; when registering both on the same engine, give each an explicit `Path`. See [ADR 0003](docs/decisions/0003-runtime-documentation-ui.md) for the documentation strategy.
 
 ### Marking endpoints as deprecated
 
@@ -98,34 +97,11 @@ group := routekit.NewRouterGroup(engine, "/api/v1",
 
 Resolution follows OR semantics: an operation is deprecated when the global `OpenAPIConfig.Defaults.Deprecated`, the group `DocumentationDefaults.Deprecated` or the endpoint `Deprecated` flag is set. There is no option to opt out of a deprecated group default; route decorators remain the escape hatch for unusual cases. Non-deprecated operations never emit the `deprecated` key in the OpenAPI document.
 
-### Docs portal
-
-`RegisterDocsPortal` serves a prebuilt static documentation site (for example a Docusaurus build) with correct caching and SPA fallback. It serves any static asset tree; the library has no Docusaurus-specific behavior:
-
-```go
-//go:embed all:portal-build
-var portalAssets embed.FS
-
-err := router.RegisterDocsPortal(engine, routekit.DocsPortalConfig{
-	Assets: portalAssets,
-	AssetsPrefix: "portal-build", // optional subdirectory inside Assets
-})
-```
-
-Behavior:
-
-- `Path` defaults to `/docs`; the index page (default `index.html`) is served at `Path` and as SPA fallback for extension-less routes, always with `Cache-Control: no-store`.
-- Assets under `assets/` are served with `Cache-Control: public, max-age=31536000, immutable`; other files use `no-store`.
-- Missing paths whose last segment contains a dot return 404; everything else falls back to the index with status 200.
-- `Path: "/"` is valid for dedicated documentation hosts and registers only the root catch-all. It conflicts with any already registered route.
-
-Coexistence follows the [documentation endpoints](#documentation-endpoints) table: Swagger UI and Stoplight Elements keep `/docs` as their default path, so give them an explicit `Path` when the portal uses the default. The portal detects route conflicts at registration and returns a friendly error (`docs portal path "..." conflicts with registered route "..."`) instead of letting Gin panic.
-
 ### Hierarchical docs metadata
 
 Two independent, opt-in extensions represent a `Resource → Version → Status → Endpoint` view without changing `tags` semantics or the default document:
 
-**`x-tagGroups`** (Redoc convention, consumed by `docusaurus-plugin-openapi-docs` via `groupPathsBy`) groups existing tags into categories:
+**`x-tagGroups`** (Redoc convention, natively consumed by Redoc) groups existing tags into categories:
 
 ```go
 config.TagGroups = []routekit.OpenAPITagGroup{

@@ -1,9 +1,0 @@
-node_modules/
-.docusaurus/
-# Real Docusaurus output lands in go/portal-build (out-dir). Keep only the
-# committed placeholder index.html versioned so `go build` works without Node.
-go/portal-build/*
-!go/portal-build/index.html
-# Build-time pipeline artifacts (Option A, optional):
-openapi.json
-docs/api/
