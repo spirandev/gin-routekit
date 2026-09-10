@@ -77,12 +77,7 @@ func (ar *AppRouter) RegisterStoplightUI(engine *gin.Engine, config StoplightUIC
 		return err
 	}
 
-	engine.GET(config.Path, func(c *gin.Context) {
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		c.Header("Cache-Control", "no-store")
-		_, _ = c.Writer.Write([]byte(html))
-	})
-	return nil
+	return registerDocsPage(engine, config.Path, html)
 }
 
 func normalizeStoplightUIConfig(config StoplightUIConfig) StoplightUIConfig {
@@ -116,11 +111,8 @@ func normalizeStoplightUIConfig(config StoplightUIConfig) StoplightUIConfig {
 }
 
 func validateStoplightUIConfig(config StoplightUIConfig) error {
-	if !strings.HasPrefix(config.Path, "/") {
-		return errors.New("stoplight UI path must start with /")
-	}
-	if strings.ContainsAny(config.Path, ":*") {
-		return errors.New("stoplight UI path must not contain gin path parameters or wildcards")
+	if err := validateUIPath("stoplight UI", config.Path); err != nil {
+		return err
 	}
 	if !isAbsolutePathOrURL(config.OpenAPIURL) {
 		return errors.New("stoplight UI OpenAPIURL must be an absolute path or URL")

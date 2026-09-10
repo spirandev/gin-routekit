@@ -55,12 +55,7 @@ func (ar *AppRouter) RegisterSwaggerUI(engine *gin.Engine, config SwaggerUIConfi
 		return err
 	}
 
-	engine.GET(config.Path, func(c *gin.Context) {
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		c.Header("Cache-Control", "no-store")
-		_, _ = c.Writer.Write([]byte(html))
-	})
-	return nil
+	return registerDocsPage(engine, config.Path, html)
 }
 
 func normalizeSwaggerUIConfig(config SwaggerUIConfig) SwaggerUIConfig {
@@ -100,11 +95,8 @@ func normalizeSwaggerUIConfig(config SwaggerUIConfig) SwaggerUIConfig {
 }
 
 func validateSwaggerUIConfig(config SwaggerUIConfig) error {
-	if !strings.HasPrefix(config.Path, "/") {
-		return errors.New("swagger UI path must start with /")
-	}
-	if strings.ContainsAny(config.Path, ":*") {
-		return errors.New("swagger UI path must not contain gin path parameters or wildcards")
+	if err := validateUIPath("swagger UI", config.Path); err != nil {
+		return err
 	}
 	if len(config.OpenAPIURLs) == 0 && !isAbsolutePathOrURL(config.OpenAPIURL) {
 		return errors.New("swagger UI OpenAPIURL must be an absolute path or URL")
@@ -132,10 +124,6 @@ func validateSwaggerUIConfig(config SwaggerUIConfig) error {
 		return errors.New("swagger UI CDNBaseURL must start with http:// or https://")
 	}
 	return nil
-}
-
-func isAbsolutePathOrURL(value string) bool {
-	return strings.HasPrefix(value, "/") || strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
 }
 
 func renderSwaggerUIHTML(config SwaggerUIConfig) (string, error) {
