@@ -51,6 +51,12 @@ func WithDocumentation() GroupOption {
 	}
 }
 
+func WithDeprecatedEndpoints() GroupOption {
+	return func(options *GroupOptions) {
+		options.documentationDefaults.Deprecated = true
+	}
+}
+
 func WithDocProfiles(names ...string) GroupOption {
 	copied := append([]string(nil), names...)
 	return func(options *GroupOptions) {

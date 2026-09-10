@@ -302,7 +302,8 @@ func buildOperation(resolved *resolvedDocumentation, reflector *schemaReflector)
 	operation := &OpenAPIOperation{
 		Tags: append([]string(nil), resolved.Tags...), Summary: resolved.Summary,
 		Description: resolved.Description, OperationID: resolved.OperationID,
-		Responses: OpenAPIResponses{}, schemaReflector: reflector,
+		Deprecated: resolved.Deprecated,
+		Responses:  OpenAPIResponses{}, schemaReflector: reflector,
 	}
 	for _, parameter := range resolved.Parameters {
 		operation.AddParameter(docParamToOpenAPIParameter(parameter))

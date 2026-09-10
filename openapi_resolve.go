@@ -8,6 +8,7 @@ import (
 
 type resolvedDocumentation struct {
 	Enabled             bool
+	Deprecated          bool
 	Summary             string
 	Description         string
 	Tags                []string
@@ -113,6 +114,9 @@ func resolveRouteDocumentation(config OpenAPIConfig, route Route, handler Handle
 	description := ""
 	tags := []string{route.Group}
 	operationID := ""
+	deprecated := config.Defaults.Deprecated ||
+		route.DocumentationDefaults.Deprecated ||
+		(handler.Doc != nil && handler.Doc.Deprecated)
 	if handler.Doc != nil {
 		if handler.Doc.Summary != "" {
 			summary = handler.Doc.Summary
@@ -128,6 +132,7 @@ func resolveRouteDocumentation(config OpenAPIConfig, route Route, handler Handle
 
 	return &resolvedDocumentation{
 		Enabled:             true,
+		Deprecated:          deprecated,
 		Summary:             summary,
 		Description:         description,
 		Tags:                tags,

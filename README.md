@@ -77,6 +77,27 @@ httpPayload, err := appRouter.BuildHTTPClient(config, routekit.HTTPClientConfig{
 
 Swagger UI and Stoplight Elements keep `/docs` as their default path for backward compatibility. Enabling the docs portal (default `/docs`) therefore requires an explicit `Path` on the UI configs. The portal detects route conflicts and returns a friendly error instead of letting Gin panic. See [ADR 0002](docs/decisions/0002-docusaurus-docs-portal.md) for the underlying decision.
 
+### Marking endpoints as deprecated
+
+Mark a single endpoint as deprecated:
+
+```go
+group.GET("/v1/users", listUsers, "List users", 20).
+	Document().
+	Deprecated()
+```
+
+Deprecate every endpoint of a group at once:
+
+```go
+group := routekit.NewRouterGroup(engine, "/api/v1",
+	routekit.WithDocumentation(),
+	routekit.WithDeprecatedEndpoints(),
+)
+```
+
+Resolution follows OR semantics: an operation is deprecated when the global `OpenAPIConfig.Defaults.Deprecated`, the group `DocumentationDefaults.Deprecated` or the endpoint `Deprecated` flag is set. There is no option to opt out of a deprecated group default; route decorators remain the escape hatch for unusual cases. Non-deprecated operations never emit the `deprecated` key in the OpenAPI document.
+
 ### Group Defaults
 
 Groups can provide shared documentation defaults without mutating endpoint `DocConfig`:

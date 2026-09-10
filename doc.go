@@ -12,6 +12,7 @@ const (
 
 type DocConfig struct {
 	Enabled     *bool
+	Deprecated  bool
 	Summary     string
 	Description string
 	Tags        []string
@@ -77,6 +78,7 @@ func SchemaWithExample[T any](example T) SchemaDescriptor {
 
 type DocumentationDefaults struct {
 	Enabled             *bool
+	Deprecated          bool
 	Profiles            []string
 	Headers             []DocParam
 	PathParams          []DocParam

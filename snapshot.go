@@ -74,6 +74,7 @@ func cloneDocConfig(doc *DocConfig) *DocConfig {
 
 	cloned := &DocConfig{
 		Enabled:     enabled,
+		Deprecated:  doc.Deprecated,
 		Summary:     doc.Summary,
 		Description: doc.Description,
 		Tags:        append([]string(nil), doc.Tags...),
@@ -163,6 +164,7 @@ func cloneContract(contract *Contract) *Contract {
 func cloneDocumentationDefaults(defaults DocumentationDefaults) DocumentationDefaults {
 	return DocumentationDefaults{
 		Enabled:             cloneBoolPtr(defaults.Enabled),
+		Deprecated:          defaults.Deprecated,
 		Profiles:            append([]string(nil), defaults.Profiles...),
 		Headers:             cloneDocParams(defaults.Headers),
 		PathParams:          cloneDocParams(defaults.PathParams),

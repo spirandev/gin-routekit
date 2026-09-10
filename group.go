@@ -192,6 +192,11 @@ func (rc *RouteConfig) HideFromDocs() *RouteConfig {
 	return rc
 }
 
+func (rc *RouteConfig) Deprecated() *RouteConfig {
+	rc.ensureDoc().Deprecated = true
+	return rc
+}
+
 func (rc *RouteConfig) Summary(value string) *RouteConfig {
 	rc.ensureDoc().Summary = value
 	return rc
