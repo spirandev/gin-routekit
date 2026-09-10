@@ -98,6 +98,29 @@ group := routekit.NewRouterGroup(engine, "/api/v1",
 
 Resolution follows OR semantics: an operation is deprecated when the global `OpenAPIConfig.Defaults.Deprecated`, the group `DocumentationDefaults.Deprecated` or the endpoint `Deprecated` flag is set. There is no option to opt out of a deprecated group default; route decorators remain the escape hatch for unusual cases. Non-deprecated operations never emit the `deprecated` key in the OpenAPI document.
 
+### Docs portal
+
+`RegisterDocsPortal` serves a prebuilt static documentation site (for example a Docusaurus build) with correct caching and SPA fallback. It serves any static asset tree; the library has no Docusaurus-specific behavior:
+
+```go
+//go:embed all:portal-build
+var portalAssets embed.FS
+
+err := router.RegisterDocsPortal(engine, routekit.DocsPortalConfig{
+	Assets: portalAssets,
+	AssetsPrefix: "portal-build", // optional subdirectory inside Assets
+})
+```
+
+Behavior:
+
+- `Path` defaults to `/docs`; the index page (default `index.html`) is served at `Path` and as SPA fallback for extension-less routes, always with `Cache-Control: no-store`.
+- Assets under `assets/` are served with `Cache-Control: public, max-age=31536000, immutable`; other files use `no-store`.
+- Missing paths whose last segment contains a dot return 404; everything else falls back to the index with status 200.
+- `Path: "/"` is valid for dedicated documentation hosts and registers only the root catch-all. It conflicts with any already registered route.
+
+Coexistence follows the [documentation endpoints](#documentation-endpoints) table: Swagger UI and Stoplight Elements keep `/docs` as their default path, so give them an explicit `Path` when the portal uses the default. The portal detects route conflicts at registration and returns a friendly error (`docs portal path "..." conflicts with registered route "..."`) instead of letting Gin panic.
+
 ### Group Defaults
 
 Groups can provide shared documentation defaults without mutating endpoint `DocConfig`:
