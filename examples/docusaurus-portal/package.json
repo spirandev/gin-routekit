@@ -7,6 +7,8 @@
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
     "build": "docusaurus build --out-dir go/portal-build",
+    "gen-api-docs": "docusaurus gen-api-docs all",
+    "clean-api-docs": "docusaurus clean-api-docs all",
     "clear": "docusaurus clear",
     "serve": "docusaurus serve"
   },
@@ -18,6 +20,10 @@
     "@stoplight/elements": "9.0.24",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "docusaurus-plugin-openapi-docs": "^5.2.0",
+    "docusaurus-theme-openapi-docs": "^5.2.0"
   },
   "browserslist": {
     "production": [

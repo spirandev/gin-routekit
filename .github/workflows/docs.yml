@@ -1,0 +1,48 @@
+# Optional build-time documentation pipeline (Option A of ADR 0002).
+#
+# Manual trigger only: this job generates the versioned API reference MDX from
+# the exported openapi.json and builds the Docusaurus portal with
+# docusaurus-plugin-openapi-docs enabled. The runtime flow (Option B) does not
+# depend on it.
+name: docs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: examples/docusaurus-portal/package-lock.json
+
+      - name: Export OpenAPI contract
+        run: go run ./export
+        working-directory: examples/docusaurus-portal
+
+      - name: Build portal with generated API docs
+        run: |
+          npm ci
+          npm run gen-api-docs
+          npm run build
+        working-directory: examples/docusaurus-portal
+        env:
+          OPENAPI_DOCS_PLUGIN: '1'
+
+      # To publish, enable GitHub Pages on this repository and add:
+      # - uses: actions/upload-pages-artifact@v3
+      #   with:
+      #     path: examples/docusaurus-portal/go/portal-build
+      # - uses: actions/deploy-pages@v4

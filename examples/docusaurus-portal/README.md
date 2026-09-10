@@ -53,7 +53,36 @@ Docusaurus is configured with `baseUrl: '/docs/'` (trailing slash included). `Re
 
 ## Search scope
 
-The Docusaurus offline search (`@easyops-cn/docusaurus-search-local`) indexes **MDX content of this build only** — the runtime-rendered API Reference endpoints are not indexed. See ADR 0002 (`docs/decisions/0002-docusaurus-docs-portal.md` in the repository) and the optional build-time pipeline (phase 6) for the mitigation.
+The Docusaurus offline search (`@easyops-cn/docusaurus-search-local`) indexes **MDX content of this build only** — the runtime-rendered API Reference endpoints are not indexed. See ADR 0002 (`docs/decisions/0002-docusaurus-docs-portal.md` in the repository) and the optional build-time pipeline below for the mitigation.
+
+## Build-time API reference (optional)
+
+The default flow is **Option B (runtime)**: the API Reference page renders `/openapi.json` served by the Go process, so the contract is always alive. There is also an **Option A (build-time)** pipeline, using `docusaurus-plugin-openapi-docs` for a versioned, static API reference with full endpoint search coverage.
+
+Both consume the **same** `openapi.json` — exported from the route snapshot with `go run ./export`. There is no second source of truth.
+
+Use Option A when you want the API reference versioned with the docs, endpoint-level search and API changelogs in MDX. Use Option B when the docs must always match the running binary.
+
+Local commands:
+
+```bash
+# Export the contract from the route snapshot
+make export-openapi
+
+# Generate the versioned API docs (MDX) and build with the plugin enabled
+make build-portal-openapi
+
+# Switch back to the runtime flow (the generated MDX needs the plugin theme,
+# so docs/api must be cleaned first)
+make clean-api-docs
+make build-portal
+```
+
+Notes:
+
+- `docs/api/` and `openapi.json` are generated artifacts (gitignored). The generated MDX must come from the pipeline, never be edited manually — otherwise it drifts from the contract.
+- The plugin options differ between major versions: `docItemComponent` was removed in `docusaurus-plugin-openapi-docs` v5 (the theme registers `@theme/ApiItem` itself). The config here targets v5.
+- `x-tagGroups` is respected by the plugin via `sidebarOptions.groupPathsBy` (`tagGroup`/`tag`); the default sidebar in this example groups by `tag`.
 
 ## OpenAPI URL note
 

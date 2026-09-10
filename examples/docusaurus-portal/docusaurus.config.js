@@ -48,6 +48,33 @@ const config = {
         indexPages: false,
       },
     ],
+    ...(process.env.OPENAPI_DOCS_PLUGIN === '1' ? ['docusaurus-theme-openapi-docs'] : []),
+  ],
+
+  // Optional build-time pipeline (Option A): with OPENAPI_DOCS_PLUGIN=1 the
+  // docusaurus-plugin-openapi-docs generates versioned MDX from the exported
+  // openapi.json (run `go run ./export` first). Without it, the site stays on
+  // the default runtime flow (Option B) - see README.
+  plugins: [
+    ...(process.env.OPENAPI_DOCS_PLUGIN === '1'
+      ? [
+          [
+            'docusaurus-plugin-openapi-docs',
+            {
+              id: 'api',
+              docsPluginId: 'default',
+              config: {
+                main: {
+                  specPath: 'openapi.json',
+                  outputDir: 'docs/api',
+                  sidebarOptions: { groupPathsBy: 'tag' },
+                  showSchemas: true,
+                },
+              },
+            },
+          ],
+        ]
+      : []),
   ],
 
   themeConfig: {
@@ -55,6 +82,8 @@ const config = {
       defaultMode: 'dark',
       respectPrefersColorScheme: true,
     },
+    // The build-time pipeline (Option A) docs are reachable through the
+    // sidebar ("main" category); no navbar entry is needed for them.
     navbar: {
       title: 'Instances API',
       items: [
@@ -63,14 +92,6 @@ const config = {
         { to: '/changelog', label: 'Changelog', position: 'right' },
       ],
     },
-    // Optional build-time OpenAPI docs (Option A, phase 6 pipeline):
-    // set DOCUSAURUS_OPENAPI_DOCS=1 and provide docusaurus-plugin-openapi-docs.
-    // The runtime API Reference page consumes /openapi.json directly (Option B,
-    // the default) and does not depend on this.
-  },
-
-  customFields: {
-    buildTimeOpenAPIDocs: process.env.DOCUSAURUS_OPENAPI_DOCS === '1',
   },
 };
 
