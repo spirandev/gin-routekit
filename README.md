@@ -97,6 +97,19 @@ group := routekit.NewRouterGroup(engine, "/api/v1",
 
 Resolution follows OR semantics: an operation is deprecated when the global `OpenAPIConfig.Defaults.Deprecated`, the group `DocumentationDefaults.Deprecated` or the endpoint `Deprecated` flag is set. There is no option to opt out of a deprecated group default; route decorators remain the escape hatch for unusual cases. Non-deprecated operations never emit the `deprecated` key in the OpenAPI document.
 
+### Marking schema properties as deprecated
+
+A single field of a request/response struct can be flagged as deprecated with the `routekit:"deprecated"` tag, read by the same reflector that already understands `json` and `binding`:
+
+```go
+type Product struct {
+	Name     string  `json:"name"`
+	OldPrice float64 `json:"old_price" routekit:"deprecated"`
+}
+```
+
+This emits `"deprecated": true` on that property's schema, in both the request and response representations, without affecting sibling properties or `required`. Fields without the tag never emit the `deprecated` key.
+
 ### Hierarchical docs metadata
 
 Two independent, opt-in extensions represent a `Resource → Version → Status → Endpoint` view without changing `tags` semantics or the default document:

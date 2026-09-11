@@ -159,6 +159,77 @@ func TestDirectionalSchemasMatchJSONFields(t *testing.T) {
 	}
 }
 
+type deprecatedNested struct {
+	Value string `json:"value"`
+}
+
+type deprecatedFieldDTO struct {
+	Current      string            `json:"current"`
+	Legacy       string            `json:"legacy" routekit:"deprecated"`
+	LegacyNested deprecatedNested  `json:"legacyNested" routekit:"deprecated"`
+	LegacyPtr    *deprecatedNested `json:"legacyPtr,omitempty" routekit:"deprecated"`
+}
+
+func TestPropertyDeprecatedTagMarksSchema(t *testing.T) {
+	routes := []Route{{Path: "/api", Group: "api", Handlers: []Handler{{
+		Method: http.MethodPost, RelativePath: "/value", Path: "/value", Definition: "value",
+		Contract: &Contract{RequestBody: &DocBody{Required: true, Schema: SchemaOf[deprecatedFieldDTO]()}, Responses: []DocResponse{{Status: 200, Description: "OK", Schema: SchemaOf[deprecatedFieldDTO]()}}},
+	}}}}
+	document, err := BuildOpenAPI(routes, fidelityConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := document.Paths["/api/value"].Post
+	requestRoot := operation.RequestBody.Content["application/json"].Schema
+	if requestRoot == nil || len(requestRoot.AnyOf) != 2 || requestRoot.AnyOf[1].Type != "null" {
+		t.Fatalf("request root = %#v", requestRoot)
+	}
+	request := referencedSchema(t, document, &requestRoot.AnyOf[0])
+	response := referencedSchema(t, document, operation.Responses["200"].Content["application/json"].Schema)
+
+	if request.Properties["current"].Deprecated || response.Properties["current"].Deprecated {
+		t.Fatalf("untagged property must not be deprecated: request=%#v response=%#v", request.Properties["current"], response.Properties["current"])
+	}
+	if !request.Properties["legacy"].Deprecated || !response.Properties["legacy"].Deprecated {
+		t.Fatalf("tagged property must be deprecated in both directions: request=%#v response=%#v", request.Properties["legacy"], response.Properties["legacy"])
+	}
+
+	nested := request.Properties["legacyNested"]
+	nestedRef := nested.Ref
+	if nestedRef == "" && len(nested.AnyOf) == 2 {
+		nestedRef = nested.AnyOf[0].Ref
+	}
+	if nestedRef == "" || !nested.Deprecated {
+		t.Fatalf("$ref property must keep deprecated set on its top-level schema: %#v", nested)
+	}
+
+	nestedPtr := request.Properties["legacyPtr"]
+	if len(nestedPtr.AnyOf) != 2 || nestedPtr.AnyOf[0].Ref == "" || !nestedPtr.Deprecated {
+		t.Fatalf("nullable $ref property must keep deprecated: %#v", nestedPtr)
+	}
+
+	responseNested := response.Properties["legacyNested"]
+	if responseNested.Ref == "" || !responseNested.Deprecated {
+		t.Fatalf("response $ref property must expose deprecated as a $ref sibling: %#v", responseNested)
+	}
+}
+
+func TestPropertyDeprecatedOmittedByDefault(t *testing.T) {
+	routes := []Route{{Path: "/api", Group: "api", Handlers: []Handler{{
+		Method: http.MethodGet, RelativePath: "/value", Path: "/value", Definition: "value",
+		Doc: &DocConfig{Responses: []DocResponse{{Status: 200, Description: "OK", Schema: SchemaOf[fidelityDTO]()}}},
+	}}}}
+	document, err := BuildOpenAPI(routes, fidelityConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := MarshalOpenAPI(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNotContains(t, string(payload), `"deprecated"`)
+}
+
 type codecDTO struct{}
 
 func (codecDTO) MarshalJSON() ([]byte, error) { return []byte(`"codec"`), nil }

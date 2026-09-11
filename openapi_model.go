@@ -113,6 +113,7 @@ type OpenAPISchema struct {
 	Type                 string                   `json:"type,omitempty"`
 	Format               string                   `json:"format,omitempty"`
 	Description          string                   `json:"description,omitempty"`
+	Deprecated           bool                     `json:"deprecated,omitempty"`
 	AnyOf                []OpenAPISchema          `json:"anyOf,omitempty"`
 	Items                *OpenAPISchema           `json:"items,omitempty"`
 	Properties           map[string]OpenAPISchema `json:"properties,omitempty"`

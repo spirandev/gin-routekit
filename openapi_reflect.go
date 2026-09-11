@@ -360,6 +360,9 @@ func (r *schemaReflector) structSchema(typ reflect.Type, direction SchemaDirecti
 		if fieldSchema == nil {
 			continue
 		}
+		if field.deprecated {
+			fieldSchema.Deprecated = true
+		}
 		schema.Properties[field.name] = *fieldSchema
 		responseRequired := !field.throughPointer && !field.omitZero && !(field.omitEmpty && omitemptyCanOmit(field.typ))
 		if direction == SchemaRequest && field.bindingRequired || direction == SchemaResponse && responseRequired {
@@ -671,7 +674,9 @@ func (r *schemaReflector) schemasEquivalent(left, right *OpenAPISchema, seen *sc
 		}
 		return left.Ref == right.Ref
 	}
-	if left.Type != right.Type || left.Format != right.Format || left.Description != right.Description || !reflect.DeepEqual(left.Required, right.Required) || len(left.AnyOf) != len(right.AnyOf) || len(left.Properties) != len(right.Properties) {
+	if left.Type != right.Type || left.Format != right.Format || left.Description != right.Description ||
+		left.Deprecated != right.Deprecated || !reflect.DeepEqual(left.Required, right.Required) ||
+		len(left.AnyOf) != len(right.AnyOf) || len(left.Properties) != len(right.Properties) {
 		return false
 	}
 	for index := range left.AnyOf {

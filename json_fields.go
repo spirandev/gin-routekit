@@ -16,6 +16,7 @@ type jsonField struct {
 	omitZero          bool
 	stringEncoded     bool
 	bindingRequired   bool
+	deprecated        bool
 	throughPointer    bool
 	unexportedPointer bool
 }
@@ -84,6 +85,7 @@ func discoverJSONFields(root reflect.Type) []jsonField {
 						name: name, typ: field.Type, index: index, tagged: tagged,
 						omitEmpty: options["omitempty"], omitZero: options["omitzero"],
 						stringEncoded: options["string"], bindingRequired: parseBindingRequired(field.Tag.Get("binding")),
+						deprecated:        parseRoutekitDeprecated(field.Tag.Get("routekit")),
 						throughPointer:    throughPointer,
 						unexportedPointer: unexportedPointer || field.Anonymous && !field.IsExported() && field.Type.Kind() == reflect.Pointer,
 					})
@@ -178,6 +180,15 @@ func validJSONTagName(name string) bool {
 func parseBindingRequired(raw string) bool {
 	for _, option := range strings.Split(raw, ",") {
 		if strings.TrimSpace(option) == "required" {
+			return true
+		}
+	}
+	return false
+}
+
+func parseRoutekitDeprecated(raw string) bool {
+	for _, option := range strings.Split(raw, ",") {
+		if strings.TrimSpace(option) == "deprecated" {
 			return true
 		}
 	}
