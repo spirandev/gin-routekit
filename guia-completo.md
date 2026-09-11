@@ -655,6 +655,8 @@ routekit.WithRequestContentType("application/json")
 routekit.WithResponseContentType("application/json")
 routekit.WithRequestExample(example)
 routekit.WithResponseExample(example)
+routekit.WithRequestExamples(routekit.NamedExample{Name: "whatsapp", Summary: "WhatsApp", Value: payload})
+routekit.WithResponseExamples(routekit.NamedExample{Name: "success", Summary: "Delivered", Value: payload})
 routekit.WithAdditionalResponse(response)
 routekit.WithoutRequestBody()
 routekit.WithoutResponseBody()
@@ -667,6 +669,8 @@ Nem toda opcao e valida em todo constructor:
 - `JSONResponseContractOf` rejeita opcoes especificas de request.
 - `EmptyJSONResponseContract` rejeita opcoes especificas de request e opcoes de body da response.
 - Incoerencias aparecem como diagnostico `contract.option.incoherent` no build OpenAPI.
+- Combinar `WithRequestExample` com `WithRequestExamples` (ou o par de response) tambem e incoerencia: exemplos nomeados vencem, mas o diagnostico falha o build.
+- Exemplos nomeados seguem o Example Object do OpenAPI: exatamente um de `Value` ou `ExternalValue`, nome nao vazio; violacoes geram `media_type.example.invalid`.
 
 Exemplo:
 
@@ -679,6 +683,19 @@ contract := routekit.JSONRequestContractOf[SearchRequest, SearchResponse](
 	routekit.WithResponseExample(SearchResponse{Total: 1}),
 	routekit.WithAdditionalResponse(
 		routekit.ResponseOf[ErrorResponse](400, "Bad Request"),
+	),
+)
+```
+
+Exemplos nomeados sao serializados como o mapa `examples` do media type, entao o Swagger UI mostra um dropdown de cenarios no "Try it out" (ex.: "WhatsApp" / "E-mail"):
+
+```go
+contract := routekit.JSONRequestContractOf[NotifyRequest, NotifyResponse](
+	200,
+	"OK",
+	routekit.WithRequestExamples(
+		routekit.NamedExample{Name: "whatsapp", Summary: "WhatsApp", Value: NotifyRequest{Channel: "whatsapp"}},
+		routekit.NamedExample{Name: "email", Summary: "E-mail", Value: NotifyRequest{Channel: "email"}},
 	),
 )
 ```
@@ -1390,6 +1407,72 @@ Regras:
 - O helper usa arquivos do CDN no navegador; ambientes sem acesso externo precisam configurar um CDN acessivel.
 - Registrar Swagger UI nao registra o JSON OpenAPI. Use tambem `RegisterOpenAPI` ou informe outra `OpenAPIURL`.
 
+## Stoplight Elements
+
+Alternativa a Swagger UI com layout de tres colunas. Registra uma pagina HTML que carrega o Stoplight Elements via CDN e aponta para o JSON OpenAPI.
+
+Registrar com defaults:
+
+```go
+err := appRouter.RegisterStoplightUI(engine, routekit.StoplightUIConfig{})
+```
+
+Defaults:
+
+```text
+Path:       /docs
+OpenAPIURL: /openapi.json
+Title:      API Docs
+Layout:     sidebar
+Router:     hash
+CDNBaseURL: https://cdn.jsdelivr.net/npm/@stoplight/elements@9.0.24
+```
+
+Configuracao customizada:
+
+```go
+err := appRouter.RegisterStoplightUI(engine, routekit.StoplightUIConfig{
+	Path:       "/documentation",
+	OpenAPIURL: "/spec/openapi.json",
+	Title:      "Example API",
+	Layout:     routekit.StoplightLayoutResponsive,
+	Logo:       "/assets/logo.png",
+	HideTryIt:  true,
+})
+```
+
+Layouts disponiveis:
+
+- `routekit.StoplightLayoutSidebar` (default): navegacao lateral.
+- `routekit.StoplightLayoutResponsive`: layout responsivo.
+- `routekit.StoplightLayoutStacked`: conteudo empilhado.
+
+Routers disponiveis:
+
+- `routekit.StoplightRouterHash` (default): deep linking via fragmento `#`.
+- `routekit.StoplightRouterHistory`: deep linking via History API. Injeta automaticamente `basePath` igual a `Path`.
+- `routekit.StoplightRouterMemory`: roteamento em memoria.
+- `routekit.StoplightRouterStatic`: pagina estatica.
+
+As opcoes `HideExport`, `HideSchemas`, `HideTryIt` e `HideTryItPanel` sao propriedades do web component aplicadas via JavaScript apos o carregamento.
+
+Limitacoes em relacao a Swagger UI:
+
+- Spec unica apenas: Stoplight Elements nao tem seletor nativo de multiplas especificacoes. Para multiplas specs use `RegisterSwaggerUI` com `OpenAPIURLs`.
+- Path default igual ao do Swagger UI (`/docs`): registrar ambos exige customizar o path de um deles, senao o Gin entra em panic de rota duplicada.
+
+Regras:
+
+- `Path` precisa comecar com `/`.
+- `Path` nao pode conter parametros `:id` nem wildcards `*path`.
+- `OpenAPIURL` precisa comecar com `/`, `http://` ou `https://`.
+- `Layout` precisa ser `sidebar`, `responsive` ou `stacked`.
+- `Router` precisa ser `hash`, `history`, `memory` ou `static`.
+- `CDNBaseURL` precisa comecar com `http://` ou `https://`.
+- O helper usa arquivos do CDN no navegador; ambientes sem acesso externo precisam configurar um CDN acessivel. A versao default e fixa (`@9.0.24`); atualizar a versao exige mudar `CDNBaseURL`.
+- URLs externas de especificacao precisam de CORS habilitado porque o Stoplight Elements roda no navegador.
+- Registrar Stoplight UI nao registra o JSON OpenAPI. Use tambem `RegisterOpenAPI` ou informe outra `OpenAPIURL`.
+
 ## jsonendpoint
 
 O subpacote `jsonendpoint` cria handlers JSON tipados e deriva o `Contract` da mesma configuracao runtime.
@@ -1757,6 +1840,7 @@ AppRouter.BuildOpenAPI
 AppRouter.BuildHTTPClient
 AppRouter.RegisterOpenAPI
 AppRouter.RegisterSwaggerUI
+AppRouter.RegisterStoplightUI
 ```
 
 ### OpenAPI

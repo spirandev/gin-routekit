@@ -306,8 +306,12 @@ func (renderer httpClientRenderer) applySecurity(operation *OpenAPIOperation, qu
 }
 
 func (renderer httpClientRenderer) renderJSONBody(media OpenAPIMediaType) ([]byte, error) {
-	if media.Example != nil {
-		payload, err := json.MarshalIndent(media.Example, "", "  ")
+	example := media.Example
+	if example == nil {
+		example = firstHTTPClientExample(media)
+	}
+	if example != nil {
+		payload, err := json.MarshalIndent(example, "", "  ")
 		if err != nil {
 			return nil, fmt.Errorf("marshal HTTP client JSON example: %w", err)
 		}
@@ -319,6 +323,26 @@ func (renderer httpClientRenderer) renderJSONBody(media OpenAPIMediaType) ([]byt
 		return nil, fmt.Errorf("marshal HTTP client JSON body: %w", err)
 	}
 	return payload, nil
+}
+
+// firstHTTPClientExample returns the value of the alphabetically first named
+// example so generated clients keep a usable body sample when the media type
+// only declares examples. Examples that reference externalValue are skipped.
+func firstHTTPClientExample(media OpenAPIMediaType) any {
+	if len(media.Examples) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(media.Examples))
+	for name := range media.Examples {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if value := media.Examples[name].Value; value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 func (renderer httpClientRenderer) schemaPlaceholder(schema *OpenAPISchema, seen map[string]bool) any {
@@ -410,13 +434,17 @@ func selectHTTPClientMediaType(body *OpenAPIRequestBody) (string, OpenAPIMediaTy
 }
 
 func renderNonJSONHTTPClientBody(media OpenAPIMediaType) (string, bool, error) {
-	if media.Example == nil {
+	example := media.Example
+	if example == nil {
+		example = firstHTTPClientExample(media)
+	}
+	if example == nil {
 		return "", false, nil
 	}
-	if value, ok := media.Example.(string); ok {
+	if value, ok := example.(string); ok {
 		return value, true, nil
 	}
-	payload, err := json.MarshalIndent(media.Example, "", "  ")
+	payload, err := json.MarshalIndent(example, "", "  ")
 	if err != nil {
 		return "", false, fmt.Errorf("marshal HTTP client body example: %w", err)
 	}

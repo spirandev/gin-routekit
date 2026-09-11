@@ -37,12 +37,23 @@ type DocParam struct {
 	Example     any
 }
 
+// NamedExample mirrors the OpenAPI Example Object; Name becomes the key of
+// the examples map in the serialized media type.
+type NamedExample struct {
+	Name          string
+	Summary       string
+	Description   string
+	Value         any
+	ExternalValue string
+}
+
 type DocBody struct {
 	Description string
 	Required    bool
 	Schema      any
 	ContentType string
 	Example     any
+	Examples    []NamedExample
 }
 
 type DocResponse struct {
@@ -51,6 +62,7 @@ type DocResponse struct {
 	Schema      any
 	ContentType string
 	Example     any
+	Examples    []NamedExample
 }
 
 type DocProfile struct {

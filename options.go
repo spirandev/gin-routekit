@@ -112,7 +112,7 @@ func WithJSONDefaults(defaults ...JSONDefault) DocumentationDefaults {
 		responses = append(responses, cloneDocResponse(DocResponse{
 			Status: defaultValue.Status, Description: defaultValue.Description,
 			Schema: defaultValue.Schema, ContentType: defaultValue.ContentType,
-			Example: defaultValue.Example,
+			Example: defaultValue.Example, Examples: defaultValue.Examples,
 		}))
 	}
 	return DocumentationDefaults{Responses: responses, ResponseContentType: "application/json"}

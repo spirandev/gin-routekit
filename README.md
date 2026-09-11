@@ -205,7 +205,18 @@ group.POST("/login", login, "Login", 10).
 
 Fluent endpoint declarations override contract values by response status and parameter key.
 
-Useful contract options include `WithOptionalRequestBody`, `WithoutRequestBody`, `WithoutResponseBody`, `WithRequestContentType`, `WithResponseContentType`, `WithRequestExample`, `WithResponseExample`, `WithAdditionalResponse`, `WithContractProfiles` and `WithContractParameter`.
+Useful contract options include `WithOptionalRequestBody`, `WithoutRequestBody`, `WithoutResponseBody`, `WithRequestContentType`, `WithResponseContentType`, `WithRequestExample`, `WithResponseExample`, `WithRequestExamples`, `WithResponseExamples`, `WithAdditionalResponse`, `WithContractProfiles` and `WithContractParameter`.
+
+Named examples serialize as the OpenAPI `examples` map, so Swagger UI offers a scenario dropdown in "Try it out"; combining `WithRequestExample` with `WithRequestExamples` (or the response pair) records a `contract.option.incoherent` diagnostic:
+
+```go
+routekit.JSONRequestContractOf[NotifyRequest, NotifyResponse](200, "OK",
+	routekit.WithRequestExamples(
+		routekit.NamedExample{Name: "whatsapp", Summary: "WhatsApp", Value: NotifyRequest{Channel: "whatsapp"}},
+		routekit.NamedExample{Name: "email", Summary: "E-mail", Value: NotifyRequest{Channel: "email"}},
+	),
+)
+```
 
 ### Typed JSON Endpoints
 

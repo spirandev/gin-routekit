@@ -484,7 +484,7 @@ func docParamsEqual(a, b DocParam) bool {
 }
 
 func docResponsesEqual(a, b DocResponse) bool {
-	return a.Status == b.Status && a.Description == b.Description && a.ContentType == b.ContentType && valuesEqual(a.Schema, b.Schema) && valuesEqual(a.Example, b.Example)
+	return a.Status == b.Status && a.Description == b.Description && a.ContentType == b.ContentType && valuesEqual(a.Schema, b.Schema) && valuesEqual(a.Example, b.Example) && valuesEqual(a.Examples, b.Examples)
 }
 
 func securityRequirementsEqual(a, b OpenAPISecurityRequirement) bool {

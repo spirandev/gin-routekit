@@ -369,11 +369,7 @@ func buildRequestBody(body *DocBody, defaultContentType string, reflector *schem
 		if contentType == "" {
 			contentType = "application/json"
 		}
-		example := body.Example
-		if example == nil {
-			example = descriptorExample
-		}
-		content[contentType] = OpenAPIMediaType{Schema: schema, Example: cloneAny(example)}
+		content[contentType] = buildMediaType(schema, body.Example, body.Examples, descriptorExample)
 	}
 	return &OpenAPIRequestBody{Description: body.Description, Required: body.Required, Content: content}
 }
@@ -391,12 +387,30 @@ func buildResponse(response DocResponse, defaultContentType string, reflector *s
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	example := response.Example
+	result.Content = map[string]OpenAPIMediaType{contentType: buildMediaType(schema, response.Example, response.Examples, descriptorExample)}
+	return result
+}
+
+// buildMediaType resolves example precedence: named examples replace the
+// singular example, which falls back to the schema descriptor example. A
+// duplicate example name keeps the last occurrence.
+func buildMediaType(schema *OpenAPISchema, example any, named []NamedExample, descriptorExample any) OpenAPIMediaType {
+	if len(named) > 0 {
+		examples := make(map[string]OpenAPIExample, len(named))
+		for _, item := range named {
+			examples[item.Name] = OpenAPIExample{
+				Summary:       item.Summary,
+				Description:   item.Description,
+				Value:         cloneAny(item.Value),
+				ExternalValue: item.ExternalValue,
+			}
+		}
+		return OpenAPIMediaType{Schema: schema, Examples: examples}
+	}
 	if example == nil {
 		example = descriptorExample
 	}
-	result.Content = map[string]OpenAPIMediaType{contentType: {Schema: schema, Example: cloneAny(example)}}
-	return result
+	return OpenAPIMediaType{Schema: schema, Example: cloneAny(example)}
 }
 
 func runDecorators(config OpenAPIConfig, route Route, handler Handler, operation *OpenAPIOperation) error {
@@ -504,6 +518,14 @@ func validateOperation(config OpenAPIConfig, operation *OpenAPIOperation, pathKe
 				collector.route("request_body.content_type", DiagnosticError, route, handler, "requestBody.content", fmt.Sprintf("invalid request media type %q", contentType))
 			}
 		}
+		for contentType, media := range operation.RequestBody.Content {
+			for name, example := range media.Examples {
+				location := fmt.Sprintf("requestBody.content.%s.examples.%s", contentType, name)
+				for _, message := range validateOpenAPIExample(name, example) {
+					collector.route("media_type.example.invalid", DiagnosticError, route, handler, location, message)
+				}
+			}
+		}
 	}
 	pathParameters := map[string]bool{}
 	for _, name := range openAPIPathParamNames(pathKey) {
@@ -553,9 +575,15 @@ func validateOperation(config OpenAPIConfig, operation *OpenAPIOperation, pathKe
 		if (status == "204" || status == "205") && len(response.Content) > 0 {
 			collector.route("response.body.forbidden", DiagnosticError, route, handler, "responses."+status, fmt.Sprintf("response status %s must not define a body schema", status))
 		}
-		for contentType := range response.Content {
+		for contentType, media := range response.Content {
 			if !validMediaType(contentType) {
 				collector.route("response.content_type", DiagnosticError, route, handler, "responses."+status, fmt.Sprintf("invalid response media type %q", contentType))
+			}
+			for name, example := range media.Examples {
+				location := fmt.Sprintf("responses.%s.content.%s.examples.%s", status, contentType, name)
+				for _, message := range validateOpenAPIExample(name, example) {
+					collector.route("media_type.example.invalid", DiagnosticError, route, handler, location, message)
+				}
 			}
 		}
 	}
@@ -620,6 +648,22 @@ func validateOpenAPIParameter(parameter OpenAPIParameter) []string {
 	}
 	if parameter.Schema.Type != "" && !validOpenAPIPrimitiveType(parameter.Schema.Type) {
 		messages = append(messages, fmt.Sprintf("parameter %q in %s has invalid schema type %q", parameter.Name, parameter.In, parameter.Schema.Type))
+	}
+	return messages
+}
+
+// validateOpenAPIExample enforces the Example Object contract: a non-empty
+// name and exactly one of value or externalValue.
+func validateOpenAPIExample(name string, example OpenAPIExample) []string {
+	var messages []string
+	if name == "" {
+		messages = append(messages, "example name must not be empty")
+	}
+	switch {
+	case example.Value != nil && example.ExternalValue != "":
+		messages = append(messages, fmt.Sprintf("example %q must define exactly one of value or externalValue", name))
+	case example.Value == nil && example.ExternalValue == "":
+		messages = append(messages, fmt.Sprintf("example %q must define value or externalValue", name))
 	}
 	return messages
 }

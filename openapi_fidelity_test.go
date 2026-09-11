@@ -320,6 +320,118 @@ func TestContractConstructorsAndRouterLifecycle(t *testing.T) {
 	}
 }
 
+func TestNamedExamplesSerialization(t *testing.T) {
+	routes := []Route{{Path: "/api", Group: "api", Handlers: []Handler{{
+		Method: http.MethodPost, RelativePath: "/notify", Path: "/notify", Definition: "notify",
+		Contract: &Contract{
+			RequestBody: &DocBody{Required: true, Schema: SchemaOf[fidelityDTO](), Examples: []NamedExample{
+				{Name: "whatsapp", Summary: "WhatsApp", Value: map[string]any{"required": "whatsapp"}},
+				{Name: "email", Summary: "E-mail", Value: map[string]any{"required": "email"}},
+			}},
+			Responses: []DocResponse{{Status: 200, Description: "OK", Schema: SchemaOf[fidelityDTO](),
+				Examples: []NamedExample{{Name: "external", ExternalValue: "https://example.test/response.json"}}}},
+		},
+	}}}}
+	document, err := BuildOpenAPI(routes, fidelityConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := MarshalOpenAPI(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(payload)
+	for _, expected := range []string{
+		`"examples": {`,
+		`"summary": "E-mail"`,
+		`"summary": "WhatsApp"`,
+		`"required": "email"`,
+		`"required": "whatsapp"`,
+		`"externalValue": "https://example.test/response.json"`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("payload missing %q:\n%s", expected, text)
+		}
+	}
+	if strings.Contains(text, `"example"`) {
+		t.Fatalf("singular example must be omitted when named examples exist:\n%s", text)
+	}
+	if strings.Index(text, `"email"`) > strings.Index(text, `"whatsapp"`) {
+		t.Fatal("named examples must serialize in alphabetical key order")
+	}
+	again, err := MarshalOpenAPI(document)
+	if err != nil || string(again) != text {
+		t.Fatalf("marshal is not deterministic: %v", err)
+	}
+}
+
+func TestExampleOptionsConflictIsDiagnostic(t *testing.T) {
+	requestConflict := JSONRequestContractOf[fidelityDTO, fidelityDTO](http.StatusOK, "OK",
+		WithRequestExample(map[string]any{"required": "singular"}),
+		WithRequestExamples(NamedExample{Name: "whatsapp", Value: map[string]any{"required": "named"}}))
+	responseConflict := JSONResponseContractOf[fidelityDTO](http.StatusOK, "OK",
+		WithResponseExample(map[string]any{"required": "singular"}),
+		WithResponseExamples(NamedExample{Name: "success", Value: map[string]any{"required": "named"}}))
+	routes := []Route{{Path: "/api", Group: "api", Handlers: []Handler{
+		{Method: http.MethodPost, RelativePath: "/request", Path: "/request", Definition: "request", Contract: &requestConflict},
+		{Method: http.MethodGet, RelativePath: "/response", Path: "/response", Definition: "response", Contract: &responseConflict},
+	}}}
+	report, err := ValidateOpenAPI(routes, fidelityConfig())
+	if err == nil || !report.HasErrors() {
+		t.Fatalf("report = %#v, error = %v", report, err)
+	}
+	count := 0
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code == "contract.option.incoherent" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("expected two contract.option.incoherent diagnostics, got %d in %#v", count, report.Diagnostics)
+	}
+	if _, err := BuildOpenAPI(routes, fidelityConfig()); err == nil {
+		t.Fatal("conflicting example options must block the build")
+	}
+}
+
+func TestInvalidNamedExamplesAreDiagnosed(t *testing.T) {
+	routes := []Route{{Path: "/api", Group: "api", Handlers: []Handler{
+		{Method: http.MethodPost, RelativePath: "/body", Path: "/body", Definition: "body", Doc: &DocConfig{
+			RequestBody: &DocBody{Required: true, Schema: SchemaOf[fidelityDTO](), Examples: []NamedExample{
+				{Name: "", Value: "missing name"},
+				{Name: "both", Value: "value", ExternalValue: "https://example.test/both.json"},
+			}},
+			Responses: []DocResponse{{Status: 200, Description: "OK"}},
+		}},
+		{Method: http.MethodGet, RelativePath: "/response", Path: "/response", Definition: "response", Doc: &DocConfig{
+			Responses: []DocResponse{{Status: 200, Description: "OK", Schema: SchemaOf[fidelityDTO](),
+				Examples: []NamedExample{{Name: "neither"}}}},
+		}},
+	}}}
+	report, err := ValidateOpenAPI(routes, fidelityConfig())
+	if err == nil || !hasDiagnosticCode(report, "media_type.example.invalid") {
+		t.Fatalf("report = %#v, error = %v", report, err)
+	}
+	messages := ""
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Code == "media_type.example.invalid" {
+			messages += diagnostic.Message + "\n"
+		}
+	}
+	for _, expected := range []string{
+		"example name must not be empty",
+		`example "both" must define exactly one of value or externalValue`,
+		`example "neither" must define value or externalValue`,
+	} {
+		if !strings.Contains(messages, expected) {
+			t.Fatalf("missing %q in %#v", expected, messages)
+		}
+	}
+	if _, err := BuildOpenAPI(routes, fidelityConfig()); err == nil {
+		t.Fatal("invalid named examples must block the build")
+	}
+}
+
 func TestMarshalOpenAPIIsIndependentOfRouteOrder(t *testing.T) {
 	handlers := []Handler{
 		{Method: http.MethodGet, RelativePath: "/a", Path: "/a", Definition: "a", Doc: &DocConfig{Responses: []DocResponse{{Status: 200, Description: "OK", Schema: SchemaOf[fidelityDTO]()}}}},

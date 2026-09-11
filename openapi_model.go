@@ -95,8 +95,18 @@ type OpenAPIRequestBody struct {
 }
 
 type OpenAPIMediaType struct {
-	Schema  *OpenAPISchema `json:"schema,omitempty"`
-	Example any            `json:"example,omitempty"`
+	Schema   *OpenAPISchema            `json:"schema,omitempty"`
+	Example  any                       `json:"example,omitempty"`
+	Examples map[string]OpenAPIExample `json:"examples,omitempty"`
+}
+
+// OpenAPIExample mirrors the OpenAPI Example Object. Exactly one of Value or
+// ExternalValue must be set, which the document builder validates.
+type OpenAPIExample struct {
+	Summary       string `json:"summary,omitempty"`
+	Description   string `json:"description,omitempty"`
+	Value         any    `json:"value,omitempty"`
+	ExternalValue string `json:"externalValue,omitempty"`
 }
 
 type OpenAPISchema struct {

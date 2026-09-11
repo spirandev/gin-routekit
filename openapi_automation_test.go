@@ -199,6 +199,82 @@ func TestSchemaDescriptorInputAndExamples(t *testing.T) {
 	}
 }
 
+func TestNamedExamplesInContract(t *testing.T) {
+	engine := newEngine()
+	group := newGroup(t, engine, "/api", "api", 1)
+	group.group.POST("/notify", okHandler, "Notify", 1).
+		Contract(JSONRequestContractOf[loginDTO, loginResponseDTO](200, "OK",
+			WithRequestExamples(
+				NamedExample{Name: "whatsapp", Summary: "WhatsApp", Value: loginDTO{Email: "wa@user"}},
+				NamedExample{Name: "email", Summary: "E-mail", Value: loginDTO{Email: "a@b.c"}},
+			),
+			WithResponseExamples(
+				NamedExample{Name: "success", Summary: "Delivered", Value: loginResponseDTO{Token: "token"}},
+			),
+		))
+
+	doc := buildDoc(t, newTestEngine(t, group), baseConfig())
+	media := doc.Paths["/api/notify"].Post.RequestBody.Content["application/json"]
+	if len(media.Examples) != 2 || media.Examples["whatsapp"].Summary != "WhatsApp" || media.Examples["email"].Summary != "E-mail" {
+		t.Fatalf("request examples = %#v", media.Examples)
+	}
+	if media.Example != nil {
+		t.Fatalf("singular example must be omitted when named examples exist: %#v", media.Example)
+	}
+	if !reflect.DeepEqual(media.Examples["whatsapp"].Value, loginDTO{Email: "wa@user"}) {
+		t.Fatalf("whatsapp example value = %#v", media.Examples["whatsapp"].Value)
+	}
+	response := doc.Paths["/api/notify"].Post.Responses["200"].Content["application/json"]
+	if len(response.Examples) != 1 || response.Example != nil || response.Examples["success"].Value.(loginResponseDTO).Token != "token" {
+		t.Fatalf("response examples = %#v, example = %#v", response.Examples, response.Example)
+	}
+}
+
+func TestNamedExamplesOverrideDescriptorExample(t *testing.T) {
+	engine := newEngine()
+	group := newGroup(t, engine, "/api", "api", 1)
+	group.group.POST("/explicit", okHandler, "Explicit", 2).
+		Document().
+		Contract(Contract{Responses: []DocResponse{{
+			Status: 200, Description: "OK",
+			Schema:   SchemaWithExample[loginResponseDTO](loginResponseDTO{Token: "descriptor"}),
+			Examples: []NamedExample{{Name: "only", Value: map[string]any{"token": "named"}}},
+		}}})
+
+	doc := buildDoc(t, newTestEngine(t, group), baseConfig())
+	media := doc.Paths["/api/explicit"].Post.Responses["200"].Content["application/json"]
+	if len(media.Examples) != 1 || media.Examples["only"].Value == nil {
+		t.Fatalf("named examples = %#v", media.Examples)
+	}
+	if media.Example != nil {
+		t.Fatalf("descriptor example must not leak when named examples exist: %#v", media.Example)
+	}
+}
+
+func TestRoutesCloneNamedExamples(t *testing.T) {
+	engine := newEngine()
+	group := newGroup(t, engine, "/api", "api", 1)
+	group.group.POST("/notify", okHandler, "notify", 1).
+		Contract(JSONRequestContractOf[loginDTO, loginResponseDTO](200, "OK",
+			WithRequestExamples(NamedExample{Name: "whatsapp", Value: map[string]any{"email": []any{"old"}}}),
+			WithResponseExamples(NamedExample{Name: "success", Value: map[string]any{"token": []any{"old"}}}),
+		))
+	ar := newTestEngine(t, group)
+	if err := ar.RegisterRoutes(engine); err != nil {
+		t.Fatalf("RegisterRoutes: %v", err)
+	}
+	first := ar.Routes()
+	first[0].Handlers[0].Contract.RequestBody.Examples[0].Value.(map[string]any)["email"].([]any)[0] = "changed"
+	first[0].Handlers[0].Contract.Responses[0].Examples[0].Value.(map[string]any)["token"].([]any)[0] = "changed"
+	second := ar.Routes()
+	if second[0].Handlers[0].Contract.RequestBody.Examples[0].Value.(map[string]any)["email"].([]any)[0] != "old" {
+		t.Fatal("request named example value was shared between snapshots")
+	}
+	if second[0].Handlers[0].Contract.Responses[0].Examples[0].Value.(map[string]any)["token"].([]any)[0] != "old" {
+		t.Fatal("response named example value was shared between snapshots")
+	}
+}
+
 func TestSchemaComponentsHandlePackagesAndGenerics(t *testing.T) {
 	engine := newEngine()
 	group := newGroup(t, engine, "/api", "api", 1)

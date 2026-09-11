@@ -143,6 +143,37 @@ func TestMarshalHTTPClientJSONBodyExamplesAndSchemaPlaceholders(t *testing.T) {
 	assertOrdered(t, text, `"active": false`, `"count": 0`, `"name": ""`, `"tags": [`)
 }
 
+func TestMarshalHTTPClientNamedExamplesFallback(t *testing.T) {
+	document := &OpenAPIDocument{
+		Servers: []OpenAPIServer{{URL: "https://api.example.com"}},
+		Paths: OpenAPIPaths{
+			"/example": {Post: httpClientBodyOperation("post_example", OpenAPIMediaType{Examples: map[string]OpenAPIExample{
+				"whatsapp": {Summary: "WhatsApp", Value: map[string]any{"channel": "whatsapp"}},
+				"email":    {Summary: "E-mail", Value: map[string]any{"channel": "email"}},
+				"remote":   {ExternalValue: "https://example.test/payload.json"},
+			}})},
+			"/plain": {Post: httpClientBodyOperationWithContent("post_plain", map[string]OpenAPIMediaType{"text/plain": {Examples: map[string]OpenAPIExample{
+				"greeting": {Value: "hello"},
+			}}})},
+		},
+	}
+
+	payload, err := MarshalHTTPClient(document, HTTPClientConfig{})
+	if err != nil {
+		t.Fatalf("MarshalHTTPClient: %v", err)
+	}
+	text := string(payload)
+	if !strings.Contains(text, `"channel": "email"`) {
+		t.Fatalf("payload did not use the alphabetically first named example:\n%s", text)
+	}
+	if strings.Contains(text, "whatsapp") || strings.Contains(text, "remote") {
+		t.Fatalf("payload must not render other named examples:\n%s", text)
+	}
+	if !strings.Contains(text, "Content-Type: text/plain\n\nhello") {
+		t.Fatalf("payload missing text/plain named example:\n%s", text)
+	}
+}
+
 func TestMarshalHTTPClientNonJSONBodies(t *testing.T) {
 	document := &OpenAPIDocument{
 		Servers: []OpenAPIServer{{URL: "https://api.example.com"}},

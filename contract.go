@@ -20,6 +20,7 @@ type JSONDefault struct {
 	Schema      any
 	ContentType string
 	Example     any
+	Examples    []NamedExample
 }
 
 type contractOptions struct {
@@ -28,6 +29,8 @@ type contractOptions struct {
 	responseContentType string
 	requestExample      any
 	responseExample     any
+	requestExamples     []NamedExample
+	responseExamples    []NamedExample
 	additionalResponses []DocResponse
 	withoutRequestBody  bool
 	withoutResponseBody bool
@@ -68,6 +71,27 @@ func WithRequestExample(example any) ContractOption {
 func WithResponseExample(example any) ContractOption {
 	return func(options *contractOptions) {
 		options.responseExample = example
+		options.responseConfigured = true
+	}
+}
+
+// WithRequestExamples registers named request body examples; serialized as
+// the OpenAPI examples map so Swagger UI offers a scenario dropdown. When
+// both WithRequestExample and WithRequestExamples are used, the contract
+// records a validation issue.
+func WithRequestExamples(examples ...NamedExample) ContractOption {
+	return func(options *contractOptions) {
+		options.requestExamples = append(options.requestExamples, examples...)
+		options.requestConfigured = true
+	}
+}
+
+// WithResponseExamples registers named response examples; serialized as the
+// OpenAPI examples map. When both WithResponseExample and WithResponseExamples
+// are used, the contract records a validation issue.
+func WithResponseExamples(examples ...NamedExample) ContractOption {
+	return func(options *contractOptions) {
+		options.responseExamples = append(options.responseExamples, examples...)
 		options.responseConfigured = true
 	}
 }
@@ -114,12 +138,19 @@ func JSONRequestContractOf[Request, Response any](status int, description string
 		Profiles:   append([]string(nil), options.profiles...),
 		Parameters: cloneDocParams(options.parameters),
 	}
+	if options.requestExample != nil && len(options.requestExamples) > 0 {
+		contract.validationIssues = append(contract.validationIssues, "request body declares both WithRequestExample and WithRequestExamples; remove one")
+	}
+	if options.responseExample != nil && len(options.responseExamples) > 0 {
+		contract.validationIssues = append(contract.validationIssues, "response declares both WithResponseExample and WithResponseExamples; remove one")
+	}
 	if !options.withoutRequestBody {
 		contract.RequestBody = &DocBody{
 			Required:    options.requestRequired,
 			Schema:      SchemaOf[Request](),
 			ContentType: options.requestContentType,
 			Example:     cloneAny(options.requestExample),
+			Examples:    cloneNamedExamples(options.requestExamples),
 		}
 	}
 
@@ -128,6 +159,7 @@ func JSONRequestContractOf[Request, Response any](status int, description string
 		Description: description,
 		ContentType: options.responseContentType,
 		Example:     cloneAny(options.responseExample),
+		Examples:    cloneNamedExamples(options.responseExamples),
 	}
 	if !options.withoutResponseBody {
 		response.Schema = SchemaOf[Response]()
@@ -147,6 +179,9 @@ func JSONResponseContractOf[Response any](status int, description string, opts .
 	contract := contractWithoutRequest[Response](status, description, options, false)
 	if options.requestConfigured {
 		contract.validationIssues = append(contract.validationIssues, "response-only contract received request-specific options")
+	}
+	if options.responseExample != nil && len(options.responseExamples) > 0 {
+		contract.validationIssues = append(contract.validationIssues, "response declares both WithResponseExample and WithResponseExamples; remove one")
 	}
 	return contract
 }
@@ -175,7 +210,7 @@ func contractWithoutRequest[Response any](status int, description string, option
 	}
 	response := DocResponse{
 		Status: status, Description: description, ContentType: options.responseContentType,
-		Example: cloneAny(options.responseExample),
+		Example: cloneAny(options.responseExample), Examples: cloneNamedExamples(options.responseExamples),
 	}
 	if !forceEmpty && !options.withoutResponseBody {
 		response.Schema = SchemaOf[Response]()
@@ -206,6 +241,7 @@ func ResponseOf[Response any](status int, description string, options ...Respons
 	return DocResponse{
 		Status: status, Description: description, Schema: SchemaOf[Response](),
 		ContentType: contentType, Example: cloneAny(settings.responseExample),
+		Examples: cloneNamedExamples(settings.responseExamples),
 	}
 }
 
@@ -213,7 +249,7 @@ func DefaultResponseOf[Response any](status int, description string, options ...
 	response := ResponseOf[Response](status, description, options...)
 	return JSONDefault{
 		Status: response.Status, Description: response.Description, Schema: response.Schema,
-		ContentType: response.ContentType, Example: response.Example,
+		ContentType: response.ContentType, Example: response.Example, Examples: response.Examples,
 	}
 }
 

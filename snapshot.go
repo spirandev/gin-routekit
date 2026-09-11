@@ -129,13 +129,32 @@ func cloneDocBody(body *DocBody) *DocBody {
 		Schema:      cloneSchemaInput(body.Schema),
 		ContentType: body.ContentType,
 		Example:     cloneAny(body.Example),
+		Examples:    cloneNamedExamples(body.Examples),
 	}
 }
 
 func cloneDocResponse(response DocResponse) DocResponse {
 	response.Schema = cloneSchemaInput(response.Schema)
 	response.Example = cloneAny(response.Example)
+	response.Examples = cloneNamedExamples(response.Examples)
 	return response
+}
+
+func cloneNamedExamples(examples []NamedExample) []NamedExample {
+	if examples == nil {
+		return nil
+	}
+	cloned := make([]NamedExample, len(examples))
+	for i, example := range examples {
+		cloned[i] = NamedExample{
+			Name:          example.Name,
+			Summary:       example.Summary,
+			Description:   example.Description,
+			Value:         cloneAny(example.Value),
+			ExternalValue: example.ExternalValue,
+		}
+	}
+	return cloned
 }
 
 func cloneDocResponses(responses []DocResponse) []DocResponse {

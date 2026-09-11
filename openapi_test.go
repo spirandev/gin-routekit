@@ -493,6 +493,50 @@ func TestBodyAndResponseUseJSONDefault(t *testing.T) {
 	}
 }
 
+func TestContractExampleOptionsConflictsAndMisuse(t *testing.T) {
+	conflict := JSONRequestContractOf[loginDTO, loginResponseDTO](http.StatusOK, "OK",
+		WithRequestExample(map[string]any{"email": "a@b.c"}),
+		WithRequestExamples(NamedExample{Name: "whatsapp", Value: loginDTO{Email: "wa@user"}}))
+	if len(conflict.validationIssues) != 1 || !strings.Contains(conflict.validationIssues[0], "request body declares both WithRequestExample and WithRequestExamples") {
+		t.Fatalf("request conflict issues = %#v", conflict.validationIssues)
+	}
+
+	responseConflict := JSONResponseContractOf[loginResponseDTO](http.StatusOK, "OK",
+		WithResponseExample(loginResponseDTO{Token: "t"}),
+		WithResponseExamples(NamedExample{Name: "success", Value: loginResponseDTO{Token: "t"}}))
+	if len(responseConflict.validationIssues) != 1 || !strings.Contains(responseConflict.validationIssues[0], "response declares both WithResponseExample and WithResponseExamples") {
+		t.Fatalf("response conflict issues = %#v", responseConflict.validationIssues)
+	}
+
+	misuse := JSONResponseContractOf[loginResponseDTO](http.StatusOK, "OK",
+		WithRequestExamples(NamedExample{Name: "whatsapp", Value: loginDTO{Email: "wa@user"}}))
+	if len(misuse.validationIssues) != 1 || misuse.validationIssues[0] != "response-only contract received request-specific options" {
+		t.Fatalf("response-only misuse issues = %#v", misuse.validationIssues)
+	}
+
+	empty := EmptyJSONResponseContract(http.StatusNoContent, "No Content",
+		WithResponseExamples(NamedExample{Name: "success", Value: loginResponseDTO{Token: "t"}}))
+	if len(empty.validationIssues) != 1 || empty.validationIssues[0] != "empty response contract received body-specific response options" {
+		t.Fatalf("empty contract issues = %#v", empty.validationIssues)
+	}
+
+	named := JSONRequestContractOf[loginDTO, loginResponseDTO](http.StatusOK, "OK",
+		WithRequestExamples(
+			NamedExample{Name: "whatsapp", Summary: "WhatsApp", Value: loginDTO{Email: "wa@user"}},
+			NamedExample{Name: "email", Summary: "E-mail", Value: loginDTO{Email: "a@b.c"}},
+		),
+		WithResponseExamples(NamedExample{Name: "success", Summary: "Delivered", Value: loginResponseDTO{Token: "t"}}))
+	if len(named.validationIssues) != 0 {
+		t.Fatalf("named-only issues = %#v", named.validationIssues)
+	}
+	if named.RequestBody == nil || len(named.RequestBody.Examples) != 2 || named.RequestBody.Examples[1].Summary != "E-mail" {
+		t.Fatalf("request examples = %#v", named.RequestBody.Examples)
+	}
+	if len(named.Responses) != 1 || len(named.Responses[0].Examples) != 1 || named.Responses[0].Examples[0].Name != "success" {
+		t.Fatalf("response examples = %#v", named.Responses[0].Examples)
+	}
+}
+
 func TestRouteWithoutResponseIsRejected(t *testing.T) {
 	engine := newEngine()
 	group := newGroup(t, engine, "/api", "api", 123)
