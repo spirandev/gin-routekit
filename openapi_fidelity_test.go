@@ -163,11 +163,23 @@ type deprecatedNested struct {
 	Value string `json:"value"`
 }
 
+type deprecatedProvider string
+
+func (deprecatedProvider) OpenAPISchema() OpenAPISchema {
+	return OpenAPISchema{Type: "string", Deprecated: true}
+}
+
 type deprecatedFieldDTO struct {
-	Current      string            `json:"current"`
-	Legacy       string            `json:"legacy" routekit:"deprecated"`
-	LegacyNested deprecatedNested  `json:"legacyNested" routekit:"deprecated"`
-	LegacyPtr    *deprecatedNested `json:"legacyPtr,omitempty" routekit:"deprecated"`
+	Current        string             `json:"current"`
+	Legacy         string             `json:"legacy" routekit:"deprecated"`
+	RequiredLegacy string             `json:"requiredLegacy" binding:"required" routekit:"deprecated"`
+	Numbers        []string           `json:"numbers,omitempty" routekit:"deprecated"`
+	Tags           []string           `json:"tags" routekit:"deprecated"`
+	OptionalName   *string            `json:"optionalName,omitempty" routekit:"deprecated"`
+	LegacyNested   deprecatedNested   `json:"legacyNested" routekit:"deprecated"`
+	PlainNested    deprecatedNested   `json:"plainNested"`
+	LegacyPtr      *deprecatedNested  `json:"legacyPtr,omitempty" routekit:"deprecated"`
+	LegacyProvider deprecatedProvider `json:"legacyProvider,omitempty"`
 }
 
 func TestPropertyDeprecatedTagMarksSchema(t *testing.T) {
@@ -179,6 +191,10 @@ func TestPropertyDeprecatedTagMarksSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if report, err := ValidateOpenAPI(routes, fidelityConfig()); err != nil {
+		t.Fatalf("unexpected diagnostics for deprecated schemas: report=%#v error=%v", report, err)
+	}
+
 	operation := document.Paths["/api/value"].Post
 	requestRoot := operation.RequestBody.Content["application/json"].Schema
 	if requestRoot == nil || len(requestRoot.AnyOf) != 2 || requestRoot.AnyOf[1].Type != "null" {
@@ -194,23 +210,107 @@ func TestPropertyDeprecatedTagMarksSchema(t *testing.T) {
 		t.Fatalf("tagged property must be deprecated in both directions: request=%#v response=%#v", request.Properties["legacy"], response.Properties["legacy"])
 	}
 
-	nested := request.Properties["legacyNested"]
-	nestedRef := nested.Ref
-	if nestedRef == "" && len(nested.AnyOf) == 2 {
-		nestedRef = nested.AnyOf[0].Ref
+	// binding:"required" keeps the field unwrapped in both directions: the flag
+	// must land directly on the property, with no anyOf involved.
+	requiredLegacy := request.Properties["requiredLegacy"]
+	if len(requiredLegacy.AnyOf) != 0 || !requiredLegacy.Deprecated {
+		t.Fatalf("required property must be deprecated directly, without anyOf: %#v", requiredLegacy)
 	}
-	if nestedRef == "" || !nested.Deprecated {
-		t.Fatalf("$ref property must keep deprecated set on its top-level schema: %#v", nested)
+	if responseRequiredLegacy := response.Properties["requiredLegacy"]; len(responseRequiredLegacy.AnyOf) != 0 || !responseRequiredLegacy.Deprecated {
+		t.Fatalf("required property must be deprecated directly in response too: %#v", responseRequiredLegacy)
+	}
+
+	// Optional slice in request: nullable wrapper. deprecated must land on both
+	// the wrapper and the array branch (the exact bug being fixed).
+	numbers := request.Properties["numbers"]
+	if len(numbers.AnyOf) != 2 || numbers.AnyOf[1].Type != "null" || numbers.AnyOf[0].Type != "array" {
+		t.Fatalf("numbers request = %#v", numbers)
+	}
+	if !numbers.Deprecated || !numbers.AnyOf[0].Deprecated {
+		t.Fatalf("optional array must be deprecated on both the wrapper and the array branch: %#v", numbers)
+	}
+	// omitempty means the response field is never serialized as null, so it
+	// stays unwrapped.
+	if responseNumbers := response.Properties["numbers"]; len(responseNumbers.AnyOf) != 0 || responseNumbers.Type != "array" || !responseNumbers.Deprecated {
+		t.Fatalf("numbers response (omitempty, never null) = %#v", responseNumbers)
+	}
+
+	// Without omitempty, the slice is nullable (and wrapped) in both directions.
+	for label, tags := range map[string]OpenAPISchema{"request": request.Properties["tags"], "response": response.Properties["tags"]} {
+		if len(tags.AnyOf) != 2 || tags.AnyOf[1].Type != "null" || tags.AnyOf[0].Type != "array" {
+			t.Fatalf("tags %s = %#v", label, tags)
+		}
+		if !tags.Deprecated || !tags.AnyOf[0].Deprecated {
+			t.Fatalf("tags %s must be deprecated on wrapper and array branch: %#v", label, tags)
+		}
+	}
+
+	optionalName := request.Properties["optionalName"]
+	if len(optionalName.AnyOf) != 2 || optionalName.AnyOf[1].Type != "null" || optionalName.AnyOf[0].Type != "string" {
+		t.Fatalf("optionalName request = %#v", optionalName)
+	}
+	if !optionalName.Deprecated || !optionalName.AnyOf[0].Deprecated {
+		t.Fatalf("optional pointer to primitive must be deprecated on wrapper and value branch: %#v", optionalName)
+	}
+
+	nested := request.Properties["legacyNested"]
+	if len(nested.AnyOf) != 2 || nested.AnyOf[0].Ref == "" || !nested.Deprecated || !nested.AnyOf[0].Deprecated {
+		t.Fatalf("optional $ref property must keep deprecated on wrapper and $ref branch: %#v", nested)
+	}
+	nestedComponentName := strings.TrimPrefix(nested.AnyOf[0].Ref, "#/components/schemas/")
+
+	// A second, untagged field of the same struct type must never be
+	// contaminated, and both fields must still share one component.
+	plain := request.Properties["plainNested"]
+	if len(plain.AnyOf) != 2 || plain.AnyOf[0].Ref == "" || plain.Deprecated || plain.AnyOf[0].Deprecated {
+		t.Fatalf("untagged $ref property must never be deprecated: %#v", plain)
+	}
+	if plainComponentName := strings.TrimPrefix(plain.AnyOf[0].Ref, "#/components/schemas/"); plainComponentName != nestedComponentName {
+		t.Fatalf("tagged and untagged fields of the same type must share one component: legacyNested=%s plainNested=%s", nestedComponentName, plainComponentName)
+	}
+	if component := document.Components.Schemas[nestedComponentName]; component == nil || component.Deprecated {
+		t.Fatalf("shared component must never carry deprecated: %#v", component)
 	}
 
 	nestedPtr := request.Properties["legacyPtr"]
-	if len(nestedPtr.AnyOf) != 2 || nestedPtr.AnyOf[0].Ref == "" || !nestedPtr.Deprecated {
-		t.Fatalf("nullable $ref property must keep deprecated: %#v", nestedPtr)
+	if len(nestedPtr.AnyOf) != 2 || nestedPtr.AnyOf[0].Ref == "" || !nestedPtr.Deprecated || !nestedPtr.AnyOf[0].Deprecated {
+		t.Fatalf("nullable $ref property must keep deprecated on wrapper and $ref branch: %#v", nestedPtr)
 	}
 
 	responseNested := response.Properties["legacyNested"]
 	if responseNested.Ref == "" || !responseNested.Deprecated {
 		t.Fatalf("response $ref property must expose deprecated as a $ref sibling: %#v", responseNested)
+	}
+
+	// A provider-declared Deprecated:true must keep working on an optional
+	// field, without relying on the routekit tag at all. Provider-backed
+	// types short-circuit schemaForType before the nullable-wrap logic (see
+	// schemaForType, provider branch), so the field stays a plain $ref and
+	// the flag already lives inside the referenced component.
+	legacyProvider := request.Properties["legacyProvider"]
+	if legacyProvider.Ref == "" || len(legacyProvider.AnyOf) != 0 {
+		t.Fatalf("provider-backed property must stay a plain $ref: %#v", legacyProvider)
+	}
+	providerComponent := referencedSchema(t, document, &legacyProvider)
+	if !providerComponent.Deprecated {
+		t.Fatalf("provider-declared deprecated must survive without the routekit tag: %#v", providerComponent)
+	}
+}
+
+func TestAddResponseInlinesDeprecatedRefSibling(t *testing.T) {
+	operation := &OpenAPIOperation{}
+	operation.AddResponse(200, "OK", deprecatedFieldDTO{})
+	standalone := operation.Responses["200"].Content["application/json"].Schema
+	if standalone == nil || standalone.Ref != "" || standalone.Type != "object" {
+		t.Fatalf("standalone AddResponse schema = %#v", standalone)
+	}
+	legacyNested := standalone.Properties["legacyNested"]
+	if legacyNested.Ref != "" || legacyNested.Type != "object" || !legacyNested.Deprecated {
+		t.Fatalf("inlining a tagged $ref must keep deprecated: %#v", legacyNested)
+	}
+	plainNested := standalone.Properties["plainNested"]
+	if plainNested.Ref != "" || plainNested.Type != "object" || plainNested.Deprecated {
+		t.Fatalf("inlining an untagged $ref must not invent deprecated: %#v", plainNested)
 	}
 }
 

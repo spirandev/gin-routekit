@@ -110,6 +110,8 @@ type Product struct {
 
 This emits `"deprecated": true` on that property's schema, in both the request and response representations, without affecting sibling properties or `required`. Fields without the tag never emit the `deprecated` key.
 
+Optional fields are nullable (`"anyOf": [<type>, {"type": "null"}]`); the flag is set on that wrapper *and* on every non-null branch, so tools that resolve a specific `anyOf` branch (e.g. Stoplight Elements) still see the field as deprecated. Struct, registered, and provider-backed fields (`$ref`) mark only the field's usage site — the shared component in `components/schemas` is never modified, so other fields referencing the same type are unaffected.
+
 ### Hierarchical docs metadata
 
 Two independent, opt-in extensions represent a `Resource → Version → Status → Endpoint` view without changing `tags` semantics or the default document:

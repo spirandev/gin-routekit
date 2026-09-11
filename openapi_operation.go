@@ -149,6 +149,9 @@ func inlineComponentRefs(schema *OpenAPISchema, components map[string]*OpenAPISc
 			seen[name] = true
 			inlined := inlineComponentRefs(component, components, seen)
 			delete(seen, name)
+			if schema.Deprecated {
+				inlined.Deprecated = true
+			}
 			return inlined
 		}
 	}

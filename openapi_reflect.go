@@ -361,7 +361,7 @@ func (r *schemaReflector) structSchema(typ reflect.Type, direction SchemaDirecti
 			continue
 		}
 		if field.deprecated {
-			fieldSchema.Deprecated = true
+			markSchemaDeprecated(fieldSchema)
 		}
 		schema.Properties[field.name] = *fieldSchema
 		responseRequired := !field.throughPointer && !field.omitZero && !(field.omitEmpty && omitemptyCanOmit(field.typ))
@@ -385,6 +385,22 @@ func nullableSchema(schema *OpenAPISchema) *OpenAPISchema {
 		}
 	}
 	return &OpenAPISchema{AnyOf: []OpenAPISchema{*cloneOpenAPISchema(schema), {Type: "null"}}}
+}
+
+// markSchemaDeprecated marks schema as deprecated, including every non-null
+// branch of its anyOf wrapper (if any), so UIs that resolve anyOf branches
+// (instead of reading the sibling deprecated flag on the wrapper) still see
+// the flag on the type they render.
+func markSchemaDeprecated(schema *OpenAPISchema) {
+	if schema == nil {
+		return
+	}
+	schema.Deprecated = true
+	for index := range schema.AnyOf {
+		if schema.AnyOf[index].Type != "null" {
+			schema.AnyOf[index].Deprecated = true
+		}
+	}
 }
 
 func (r *schemaReflector) schemaFromProvider(typ reflect.Type, direction SchemaDirection) (schema *OpenAPISchema, found bool) {
