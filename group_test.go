@@ -291,6 +291,144 @@ func TestExportWithoutSameApplicationMiddleware(t *testing.T) {
 	}
 }
 
+func TestLegacyHTTPRegistrationCompatibility(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	group := NewRouterGroup(engine, "/api")
+
+	group.GET("/get", okHandler, "get", 1)
+	group.HEAD("/head", okHandler, "head", 2)
+	group.POST("/post", okHandler, "post", 3)
+	group.PUT("/put", okHandler, "put", 4)
+	group.PATCH("/patch", okHandler, "patch", 5)
+	group.DELETE("/delete", okHandler, "delete", 6)
+	group.OPTIONS("/options", okHandler, "options", 7)
+	group.Handle(http.MethodTrace, "/trace", okHandler, "trace", 8)
+
+	route := group.Export("api", 123)
+	wantMethods := []string{
+		http.MethodGet,
+		http.MethodHead,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodPatch,
+		http.MethodDelete,
+		http.MethodOptions,
+		http.MethodTrace,
+	}
+	if len(route.Handlers) != len(wantMethods) {
+		t.Fatalf("handlers = %d, want %d", len(route.Handlers), len(wantMethods))
+	}
+	for i, want := range wantMethods {
+		if got := route.Handlers[i].Method; got != want {
+			t.Errorf("handler %d method = %q, want %q", i, got, want)
+		}
+		if got := route.Handlers[i].RouteId; got != int32(i+1) {
+			t.Errorf("handler %d route ID = %d, want %d", i, got, i+1)
+		}
+	}
+}
+
+func TestLegacyRouteFluentsCompatibility(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	group := NewRouterGroup(engine, "/api")
+	middleware := countingMiddleware(new(int))
+
+	group.GET("/resource", okHandler, "resource", 1).
+		NoAuthz().
+		RequireClientContext().
+		BasicRoute().
+		M2MRoute().
+		AllowAnySessionApp().
+		IntegrationRoute().
+		Scopes("scope:a", "scope:b").
+		Use(middleware)
+	group.GET("/no-client", okHandler, "no client", 2).
+		RequireClientContext().
+		NoClientContext().
+		Public()
+
+	route := group.Export("api", 123)
+	got := route.Handlers[0]
+	if got.IsAuthentication == nil || !*got.IsAuthentication {
+		t.Error("authenticated fluent route lost authentication metadata")
+	}
+	if got.IsAuthorization == nil || *got.IsAuthorization {
+		t.Error("NoAuthz did not disable authorization")
+	}
+	if got.RequiresClientContext == nil || !*got.RequiresClientContext {
+		t.Error("RequireClientContext did not set metadata")
+	}
+	if got.IsBasic == nil || !*got.IsBasic || got.IsM2M == nil || !*got.IsM2M {
+		t.Error("BasicRoute or M2MRoute metadata was not preserved")
+	}
+	if got.IsSameApplicationRequired == nil || *got.IsSameApplicationRequired {
+		t.Error("AllowAnySessionApp did not disable same-application metadata")
+	}
+	if got.IsIntegration == nil || !*got.IsIntegration {
+		t.Error("IntegrationRoute did not set metadata")
+	}
+	if !slices.Equal(got.Scopes, []string{"scope:a", "scope:b"}) {
+		t.Errorf("scopes = %v", got.Scopes)
+	}
+	if len(got.Middleware) != 1 {
+		t.Errorf("route middleware count = %d, want 1", len(got.Middleware))
+	}
+
+	noClient := route.Handlers[1]
+	if noClient.RequiresClientContext == nil || *noClient.RequiresClientContext {
+		t.Error("NoClientContext did not disable client context")
+	}
+	if noClient.IsAuthentication == nil || *noClient.IsAuthentication || noClient.IsAuthorization == nil || *noClient.IsAuthorization {
+		t.Error("Public did not disable authentication and authorization")
+	}
+}
+
+func TestLegacyMiddlewareAndRouteContextOrder(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	order := []string{}
+	appendMiddleware := func(name string) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			order = append(order, name)
+			c.Next()
+		}
+	}
+	group := NewRouterGroup(
+		engine,
+		"/api",
+		WithRouteContextKeys("route-id", "app-id"),
+		WithAuthMiddlewareFactory(func() gin.HandlerFunc { return appendMiddleware("auth") }),
+		WithSameApplicationMiddleware(appendMiddleware("same-app")),
+		WithAuthorizationMiddleware(appendMiddleware("authorization")),
+	)
+	group.Use(func(c *gin.Context) {
+		routeID, routeIDExists := c.Get("route-id")
+		if !routeIDExists || routeID != int32(7) || c.GetInt64("app-id") != 99 {
+			t.Errorf("route context = (%v, %d), want (7, 99)", routeID, c.GetInt64("app-id"))
+		}
+		order = append(order, "group")
+		c.Next()
+	})
+	group.GET("/resource", func(c *gin.Context) {
+		order = append(order, "handler")
+		c.Status(http.StatusOK)
+	}, "resource", 7).Use(appendMiddleware("route"))
+	group.Export("api", 99)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/resource", nil)
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	want := []string{"group", "auth", "same-app", "authorization", "route", "handler"}
+	if !slices.Equal(order, want) {
+		t.Errorf("middleware order = %v, want %v", order, want)
+	}
+}
+
 type middlewareCounts struct {
 	auth          int
 	authorization int

@@ -2,6 +2,7 @@ package routekit
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -12,11 +13,12 @@ type RouteConfig struct {
 }
 
 type RouterGroup struct {
-	ginGroup    *gin.RouterGroup
-	basePath    string
-	definitions []Handler
-	middlewares []gin.HandlerFunc
-	options     GroupOptions
+	ginGroup                *gin.RouterGroup
+	basePath                string
+	definitions             []Handler
+	middlewares             []gin.HandlerFunc
+	groupMiddlewareMetadata []MiddlewareMetadata
+	options                 GroupOptions
 }
 
 func NewRouterGroup(engine *gin.Engine, path string, options ...GroupOption) *RouterGroup {
@@ -26,16 +28,22 @@ func NewRouterGroup(engine *gin.Engine, path string, options ...GroupOption) *Ro
 	}
 
 	return &RouterGroup{
-		ginGroup:    engine.Group(path),
-		basePath:    path,
-		definitions: []Handler{},
-		middlewares: []gin.HandlerFunc{},
-		options:     groupOptions,
+		ginGroup:                engine.Group(path),
+		basePath:                path,
+		definitions:             []Handler{},
+		middlewares:             []gin.HandlerFunc{},
+		groupMiddlewareMetadata: []MiddlewareMetadata{},
+		options:                 groupOptions,
 	}
 }
 
 func (rg *RouterGroup) Use(middleware ...gin.HandlerFunc) {
 	rg.middlewares = append(rg.middlewares, middleware...)
+}
+
+func (rg *RouterGroup) UseDocumented(middleware gin.HandlerFunc, contributions ...DocumentationContribution) {
+	rg.middlewares = append(rg.middlewares, middleware)
+	rg.groupMiddlewareMetadata = append(rg.groupMiddlewareMetadata, metadataFromContributions(contributions))
 }
 
 func (rg *RouterGroup) GET(relativePath string, handler gin.HandlerFunc, description string, routeID int32) *RouteConfig {
@@ -146,6 +154,187 @@ func (rc *RouteConfig) Use(middleware ...gin.HandlerFunc) *RouteConfig {
 	return rc
 }
 
+func (rc *RouteConfig) UseDocumented(middleware gin.HandlerFunc, contributions ...DocumentationContribution) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	def.Middleware = append(def.Middleware, middleware)
+	def.MiddlewareMetadata = append(def.MiddlewareMetadata, metadataFromContributions(contributions))
+	return rc
+}
+
+func metadataFromContributions(contributions []DocumentationContribution) MiddlewareMetadata {
+	var metadata MiddlewareMetadata
+	for _, contribution := range contributions {
+		if contribution != nil {
+			contribution.applyDocumentation(&metadata)
+		}
+	}
+	return cloneMiddlewareMetadata(metadata)
+}
+
+func (rc *RouteConfig) ensureDoc() *DocConfig {
+	def := &rc.group.definitions[rc.index]
+	if def.Doc == nil {
+		def.Doc = &DocConfig{}
+	}
+	return def.Doc
+}
+
+func (rc *RouteConfig) Document() *RouteConfig {
+	doc := rc.ensureDoc()
+	enabled := true
+	doc.Enabled = &enabled
+	return rc
+}
+
+func (rc *RouteConfig) HideFromDocs() *RouteConfig {
+	doc := rc.ensureDoc()
+	enabled := false
+	doc.Enabled = &enabled
+	return rc
+}
+
+func (rc *RouteConfig) Deprecated() *RouteConfig {
+	rc.ensureDoc().Deprecated = true
+	return rc
+}
+
+func (rc *RouteConfig) Section(path ...string) *RouteConfig {
+	trimmed := make([]string, 0, len(path))
+	for _, segment := range path {
+		if segment = strings.TrimSpace(segment); segment != "" {
+			trimmed = append(trimmed, segment)
+		}
+	}
+	if len(trimmed) == 0 {
+		return rc
+	}
+	rc.ensureDoc().Section = trimmed
+	return rc
+}
+
+func (rc *RouteConfig) Summary(value string) *RouteConfig {
+	rc.ensureDoc().Summary = value
+	return rc
+}
+
+func (rc *RouteConfig) Description(value string) *RouteConfig {
+	rc.ensureDoc().Description = value
+	return rc
+}
+
+func (rc *RouteConfig) OperationID(value string) *RouteConfig {
+	rc.ensureDoc().OperationID = value
+	return rc
+}
+
+func (rc *RouteConfig) Tags(tags ...string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Tags = append([]string{}, tags...)
+	return rc
+}
+
+func (rc *RouteConfig) DocProfile(names ...string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Profiles = append(doc.Profiles, names...)
+	return rc
+}
+
+func (rc *RouteConfig) WithoutDocProfile(names ...string) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	def.DocRemovals.Profiles = append(def.DocRemovals.Profiles, names...)
+	return rc
+}
+
+func (rc *RouteConfig) WithoutDefaultResponse(status ...int) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	def.DocRemovals.Responses = append(def.DocRemovals.Responses, status...)
+	return rc
+}
+
+func (rc *RouteConfig) WithoutDefaultParameter(in DocParamIn, name string) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	def.DocRemovals.Parameters = append(def.DocRemovals.Parameters, paramTombstone{In: in, Name: name})
+	return rc
+}
+
+func (rc *RouteConfig) Contract(contract Contract) *RouteConfig {
+	def := &rc.group.definitions[rc.index]
+	cloned := cloneContract(&contract)
+	def.Contract = cloned
+	return rc
+}
+
+func (rc *RouteConfig) Header(name, typ string, required bool, description string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Headers = append(doc.Headers, DocParam{
+		Name:        name,
+		In:          DocParamInHeader,
+		Type:        typ,
+		Required:    required,
+		Description: description,
+	})
+	return rc
+}
+
+func (rc *RouteConfig) Query(name, typ string, required bool, description string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.QueryParams = append(doc.QueryParams, DocParam{
+		Name:        name,
+		In:          DocParamInQuery,
+		Type:        typ,
+		Required:    required,
+		Description: description,
+	})
+	return rc
+}
+
+func (rc *RouteConfig) PathParam(name, typ string, required bool, description string) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.PathParams = append(doc.PathParams, DocParam{
+		Name:        name,
+		In:          DocParamInPath,
+		Type:        typ,
+		Required:    required,
+		Description: description,
+	})
+	return rc
+}
+
+func (rc *RouteConfig) Body(schema any) *RouteConfig {
+	rc.ensureDoc().RequestBody = &DocBody{Schema: schema, Required: true}
+	return rc
+}
+
+func (rc *RouteConfig) BodyWith(description string, required bool, schema any) *RouteConfig {
+	rc.ensureDoc().RequestBody = &DocBody{
+		Description: description,
+		Required:    required,
+		Schema:      schema,
+	}
+	return rc
+}
+
+func (rc *RouteConfig) Response(status int, description string, schema any) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Responses = append(doc.Responses, DocResponse{
+		Status:      status,
+		Description: description,
+		Schema:      schema,
+	})
+	return rc
+}
+
+func (rc *RouteConfig) ResponseWith(status int, description string, contentType string, schema any) *RouteConfig {
+	doc := rc.ensureDoc()
+	doc.Responses = append(doc.Responses, DocResponse{
+		Status:      status,
+		Description: description,
+		ContentType: contentType,
+		Schema:      schema,
+	})
+	return rc
+}
+
 func (rg *RouterGroup) Export(groupName string, appID int64) Route {
 	for _, def := range rg.definitions {
 		middlewares := []gin.HandlerFunc{
@@ -177,10 +366,12 @@ func (rg *RouterGroup) Export(groupName string, appID int64) Route {
 	}
 
 	return Route{
-		Path:          rg.basePath,
-		Handlers:      rg.definitions,
-		Group:         groupName,
-		ApplicationID: appID,
+		Path:                    rg.basePath,
+		Handlers:                cloneHandlers(rg.definitions),
+		Group:                   groupName,
+		ApplicationID:           appID,
+		DocumentationDefaults:   cloneDocumentationDefaults(rg.options.documentationDefaults),
+		GroupMiddlewareMetadata: cloneMiddlewareMetadataSlice(rg.groupMiddlewareMetadata),
 	}
 }
 

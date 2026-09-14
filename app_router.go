@@ -12,8 +12,11 @@ type RouteSyncer interface {
 }
 
 type AppRouter struct {
-	registrars []RouteRegistrar
-	syncer     RouteSyncer
+	registrars       []RouteRegistrar
+	syncer           RouteSyncer
+	routes           []Route
+	routesRegistered bool
+	openAPICache     []byte
 }
 
 func NewAppRouter(registrars any, syncer RouteSyncer) *AppRouter {
@@ -40,6 +43,9 @@ func (ar *AppRouter) RegisterRoutes(engine *gin.Engine) error {
 		}
 	}
 
+	ar.routes = cloneRoutes(routes)
+	ar.routesRegistered = true
+
 	if ar.syncer == nil {
 		return nil
 	}
@@ -47,6 +53,24 @@ func (ar *AppRouter) RegisterRoutes(engine *gin.Engine) error {
 		return fmt.Errorf("sync routes: %w", err)
 	}
 	return nil
+}
+
+func (ar *AppRouter) Routes() []Route {
+	return cloneRoutes(ar.routes)
+}
+
+func (ar *AppRouter) ValidateOpenAPI(config OpenAPIConfig) (DiagnosticReport, error) {
+	if !ar.routesRegistered {
+		return DiagnosticReport{}, errRegisterRoutesRequired
+	}
+	return ValidateOpenAPI(ar.routes, config)
+}
+
+func (ar *AppRouter) BuildOpenAPI(config OpenAPIConfig) (*OpenAPIDocument, error) {
+	if !ar.routesRegistered {
+		return nil, errRegisterRoutesRequired
+	}
+	return BuildOpenAPI(ar.routes, config)
 }
 
 func collectRegistrars(registrars any) []RouteRegistrar {
