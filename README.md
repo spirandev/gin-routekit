@@ -73,8 +73,9 @@ httpPayload, err := appRouter.BuildHTTPClient(config, routekit.HTTPClientConfig{
 | `/openapi.json` | `RegisterOpenAPI` (dynamic) | — |
 | `/swagger` | `RegisterSwaggerUI(Path: "/swagger")` | Swagger UI |
 | `/stoplight` | `RegisterStoplightUI(Path: "/stoplight")` | Stoplight Elements |
+| `/scalar` | `RegisterScalarUI(Path: "/scalar")` | Scalar API Reference |
 
-Both UIs default to `/docs` for backward compatibility; when registering both on the same engine, give each an explicit `Path`. See [ADR 0003](docs/decisions/0003-runtime-documentation-ui.md) for the documentation strategy.
+All UIs default to `/docs` for backward compatibility; when registering more than one on the same engine, give each an explicit `Path`. See [ADR 0003](docs/decisions/0003-runtime-documentation-ui.md) for the documentation strategy.
 
 ### Marking endpoints as deprecated
 

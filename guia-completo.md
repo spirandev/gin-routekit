@@ -19,10 +19,12 @@ Este guia mostra como usar toda a biblioteca `gin-routekit`: grupos e rotas Gin,
 13. [Security schemes e regras](#security-schemes-e-regras)
 14. [Decorators](#decorators)
 15. [Swagger UI](#swagger-ui)
-16. [jsonendpoint](#jsonendpoint)
-17. [Validacao, testes e CI](#validacao-testes-e-ci)
-18. [Erros comuns](#erros-comuns)
-19. [Referencia rapida](#referencia-rapida)
+16. [Stoplight Elements](#stoplight-elements)
+17. [Scalar](#scalar)
+18. [jsonendpoint](#jsonendpoint)
+19. [Validacao, testes e CI](#validacao-testes-e-ci)
+20. [Erros comuns](#erros-comuns)
+21. [Referencia rapida](#referencia-rapida)
 
 ## Instalacao
 
@@ -1473,6 +1475,70 @@ Regras:
 - URLs externas de especificacao precisam de CORS habilitado porque o Stoplight Elements roda no navegador.
 - Registrar Stoplight UI nao registra o JSON OpenAPI. Use tambem `RegisterOpenAPI` ou informe outra `OpenAPIURL`.
 
+## Scalar
+
+Terceira opcao de renderer, com tema visual moderno e varias paletas prontas. Registra uma pagina HTML que carrega o Scalar API Reference via CDN e aponta para o JSON OpenAPI.
+
+Registrar com defaults:
+
+```go
+err := appRouter.RegisterScalarUI(engine, routekit.ScalarUIConfig{})
+```
+
+Defaults:
+
+```text
+Path:       /docs
+OpenAPIURL: /openapi.json
+Title:      API Docs
+Theme:      default
+Layout:     modern
+CDNBaseURL: https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.28.5
+```
+
+Configuracao customizada:
+
+```go
+err := appRouter.RegisterScalarUI(engine, routekit.ScalarUIConfig{
+	Path:               "/documentation",
+	OpenAPIURL:         "/spec/openapi.json",
+	Title:              "Example API",
+	Theme:              routekit.ScalarThemePurple,
+	Layout:             routekit.ScalarLayoutClassic,
+	HideDownloadButton: true,
+})
+```
+
+Temas disponiveis:
+
+- `routekit.ScalarThemeDefault` (default), `ScalarThemeAlternate`, `ScalarThemeMoon`, `ScalarThemePurple`, `ScalarThemeSolarized`, `ScalarThemeBluePlanet`, `ScalarThemeSaturn`, `ScalarThemeKepler`, `ScalarThemeMars`, `ScalarThemeDeepSpace`, `ScalarThemeNone`.
+
+Layouts disponiveis:
+
+- `routekit.ScalarLayoutModern` (default): layout com tres colunas.
+- `routekit.ScalarLayoutClassic`: layout classico de uma coluna.
+
+As opcoes `HideSidebar`, `HideDownloadButton`, `HideTestRequestButton` e `HideModels` seguem a convencao `Hide*` do restante do pacote (zero-value `false` nunca esconde nada); internamente `HideSidebar` e traduzido para a chave nativa `showSidebar` do Scalar.
+
+Diferenca importante em relacao a Swagger UI e Stoplight Elements: `CDNBaseURL` aqui e a URL completa de um unico script standalone, nao um prefixo para varios arquivos (o Scalar nao publica um CSS separado).
+
+Limitacoes:
+
+- Spec unica apenas nesta versao. Para multiplas specs use `RegisterSwaggerUI` com `OpenAPIURLs`.
+- Path default igual ao das outras UIs (`/docs`): registrar mais de uma exige customizar o `Path` de cada uma, senao o Gin entra em panic de rota duplicada.
+
+Regras:
+
+- `Path` precisa comecar com `/`.
+- `Path` nao pode conter parametros `:id` nem wildcards `*path`.
+- `OpenAPIURL` precisa comecar com `/`, `http://` ou `https://`.
+- `Theme` precisa ser um dos valores listados acima.
+- `Layout` precisa ser `modern` ou `classic`.
+- `CDNBaseURL` precisa comecar com `http://` ou `https://`.
+- O helper usa o script do CDN no navegador; ambientes sem acesso externo precisam configurar um CDN acessivel. A versao default e fixa; atualizar a versao exige mudar `CDNBaseURL`.
+- URLs externas de especificacao precisam de CORS habilitado porque o Scalar roda no navegador.
+- Registrar Scalar UI nao registra o JSON OpenAPI. Use tambem `RegisterOpenAPI` ou informe outra `OpenAPIURL`.
+
 ## jsonendpoint
 
 O subpacote `jsonendpoint` cria handlers JSON tipados e deriva o `Contract` da mesma configuracao runtime.
@@ -1841,6 +1907,7 @@ AppRouter.BuildHTTPClient
 AppRouter.RegisterOpenAPI
 AppRouter.RegisterSwaggerUI
 AppRouter.RegisterStoplightUI
+AppRouter.RegisterScalarUI
 ```
 
 ### OpenAPI
