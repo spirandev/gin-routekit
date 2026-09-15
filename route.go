@@ -44,6 +44,7 @@ type Handler struct {
 	IsM2M                     *bool
 	IsSameApplicationRequired *bool
 	IsIntegration             *bool
+	IsRestricted              *bool
 	Scopes                    []string
 	Doc                       *DocConfig
 	Contract                  *Contract

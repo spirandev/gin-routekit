@@ -93,6 +93,7 @@ func (rg *RouterGroup) addRoute(method, path string, handler gin.HandlerFunc, de
 		IsSameApplicationRequired: boolPtr(true),
 		RequiresClientContext:     boolPtr(false),
 		IsIntegration:             boolPtr(false),
+		IsRestricted:              boolPtr(false),
 		Scopes:                    []string{},
 	}
 
@@ -141,6 +142,11 @@ func (rc *RouteConfig) AllowAnySessionApp() *RouteConfig {
 
 func (rc *RouteConfig) IntegrationRoute() *RouteConfig {
 	rc.group.definitions[rc.index].IsIntegration = boolPtr(true)
+	return rc
+}
+
+func (rc *RouteConfig) Restrict() *RouteConfig {
+	rc.group.definitions[rc.index].IsRestricted = boolPtr(true)
 	return rc
 }
 
