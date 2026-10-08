@@ -36,27 +36,23 @@ func cloneHandlers(handlers []Handler) []Handler {
 		if h.Scopes != nil && scopes == nil {
 			scopes = []string{}
 		}
-		cloned[i] = Handler{
-			Handler:                   h.Handler,
-			Middleware:                append([]gin.HandlerFunc(nil), h.Middleware...),
-			Method:                    h.Method,
-			Path:                      h.Path,
-			Definition:                h.Definition,
-			RouteId:                   h.RouteId,
-			RelativePath:              h.RelativePath,
-			IsAuthentication:          cloneBoolPtr(h.IsAuthentication),
-			IsAuthorization:           cloneBoolPtr(h.IsAuthorization),
-			RequiresClientContext:     cloneBoolPtr(h.RequiresClientContext),
-			IsBasic:                   cloneBoolPtr(h.IsBasic),
-			IsM2M:                     cloneBoolPtr(h.IsM2M),
-			IsSameApplicationRequired: cloneBoolPtr(h.IsSameApplicationRequired),
-			IsIntegration:             cloneBoolPtr(h.IsIntegration),
-			Scopes:                    scopes,
-			Doc:                       cloneDocConfig(h.Doc),
-			Contract:                  cloneContract(h.Contract),
-			DocRemovals:               cloneDocRemovals(h.DocRemovals),
-			MiddlewareMetadata:        cloneMiddlewareMetadataSlice(h.MiddlewareMetadata),
-		}
+		// Start from a full value copy so new Handler fields are never dropped,
+		// then replace reference fields with deep copies.
+		cloned[i] = h
+		cloned[i].Middleware = append([]gin.HandlerFunc(nil), h.Middleware...)
+		cloned[i].IsAuthentication = cloneBoolPtr(h.IsAuthentication)
+		cloned[i].IsAuthorization = cloneBoolPtr(h.IsAuthorization)
+		cloned[i].RequiresClientContext = cloneBoolPtr(h.RequiresClientContext)
+		cloned[i].IsBasic = cloneBoolPtr(h.IsBasic)
+		cloned[i].IsM2M = cloneBoolPtr(h.IsM2M)
+		cloned[i].IsSameApplicationRequired = cloneBoolPtr(h.IsSameApplicationRequired)
+		cloned[i].IsIntegration = cloneBoolPtr(h.IsIntegration)
+		cloned[i].IsRestricted = cloneBoolPtr(h.IsRestricted)
+		cloned[i].Scopes = scopes
+		cloned[i].Doc = cloneDocConfig(h.Doc)
+		cloned[i].Contract = cloneContract(h.Contract)
+		cloned[i].DocRemovals = cloneDocRemovals(h.DocRemovals)
+		cloned[i].MiddlewareMetadata = cloneMiddlewareMetadataSlice(h.MiddlewareMetadata)
 	}
 	return cloned
 }
