@@ -74,15 +74,10 @@ func TestCloneHandlersIsIndependentFromOriginal(t *testing.T) {
 	cloned := cloneHandlers(handlers)
 
 	original := &handlers[0]
-	origValue := reflect.ValueOf(original).Elem()
-	clonedValue := reflect.ValueOf(cloned[0])
-	for i := 0; i < origValue.NumField(); i++ {
-		if origValue.Field(i).Kind() != reflect.Ptr {
-			continue
-		}
-		if origValue.Field(i).Pointer() == clonedValue.Field(i).Pointer() {
-			t.Errorf("cloned Handler shares pointer field %s with original", origValue.Type().Field(i).Name)
-		}
+	assertNoSharedReferences(t, "Handler", reflect.ValueOf(original).Elem(), reflect.ValueOf(cloned[0]))
+
+	if cloned[0].IsRestricted == nil || cloned[0].IsIntegration == nil {
+		t.Fatal("cloned Handler lost a bool pointer field")
 	}
 
 	*original.IsRestricted = false
@@ -95,7 +90,7 @@ func TestCloneHandlersIsIndependentFromOriginal(t *testing.T) {
 	original.MiddlewareMetadata[0].Profiles[0] = "mutated"
 
 	got := cloned[0]
-	if got.IsRestricted == nil || !*got.IsRestricted || got.IsIntegration == nil || !*got.IsIntegration {
+	if !*got.IsRestricted || !*got.IsIntegration {
 		t.Error("mutating original bool pointers changed the clone")
 	}
 	if got.Scopes[0] != "scope:a" {
@@ -115,6 +110,29 @@ func TestCloneHandlersIsIndependentFromOriginal(t *testing.T) {
 	}
 	if got.MiddlewareMetadata[0].Profiles[0] != "mw" {
 		t.Error("mutating original MiddlewareMetadata changed the clone")
+	}
+}
+
+// assertNoSharedReferences fails when a non-nil pointer, slice or map in orig
+// shares its backing memory with the same field in clone, descending into
+// nested struct values.
+func assertNoSharedReferences(t *testing.T, path string, orig, clone reflect.Value) {
+	t.Helper()
+	for i := 0; i < orig.NumField(); i++ {
+		name := path + "." + orig.Type().Field(i).Name
+		origField, clonedField := orig.Field(i), clone.Field(i)
+		switch origField.Kind() {
+		case reflect.Ptr, reflect.Map:
+			if !origField.IsNil() && origField.Pointer() == clonedField.Pointer() {
+				t.Errorf("cloned %s shares memory with original", name)
+			}
+		case reflect.Slice:
+			if origField.Len() > 0 && origField.Pointer() == clonedField.Pointer() {
+				t.Errorf("cloned %s shares memory with original", name)
+			}
+		case reflect.Struct:
+			assertNoSharedReferences(t, name, origField, clonedField)
+		}
 	}
 }
 
