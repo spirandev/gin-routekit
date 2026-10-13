@@ -36,6 +36,10 @@ func cloneHandlers(handlers []Handler) []Handler {
 		if h.Scopes != nil && scopes == nil {
 			scopes = []string{}
 		}
+		accessTypes := append([]string(nil), h.AccessTypes...)
+		if h.AccessTypes != nil && accessTypes == nil {
+			accessTypes = []string{}
+		}
 		// Start from a full value copy so new Handler fields are never dropped,
 		// then replace reference fields with deep copies.
 		cloned[i] = h
@@ -49,6 +53,7 @@ func cloneHandlers(handlers []Handler) []Handler {
 		cloned[i].IsIntegration = cloneBoolPtr(h.IsIntegration)
 		cloned[i].IsRestricted = cloneBoolPtr(h.IsRestricted)
 		cloned[i].Scopes = scopes
+		cloned[i].AccessTypes = accessTypes
 		cloned[i].Doc = cloneDocConfig(h.Doc)
 		cloned[i].Contract = cloneContract(h.Contract)
 		cloned[i].DocRemovals = cloneDocRemovals(h.DocRemovals)

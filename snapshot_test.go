@@ -26,6 +26,8 @@ func fullHandler() Handler {
 		IsIntegration:             boolPtr(true),
 		IsRestricted:              boolPtr(true),
 		Scopes:                    []string{"scope:a"},
+		Category:                  "category",
+		AccessTypes:               []string{"access:a"},
 		Doc:                       &DocConfig{Summary: "summary", Tags: []string{"tag"}},
 		Contract:                  &Contract{Profiles: []string{"profile"}},
 		DocRemovals:               docRemovals{Profiles: []string{"removed"}},
@@ -83,6 +85,7 @@ func TestCloneHandlersIsIndependentFromOriginal(t *testing.T) {
 	*original.IsRestricted = false
 	*original.IsIntegration = false
 	original.Scopes[0] = "mutated"
+	original.AccessTypes[0] = "mutated"
 	original.Middleware[0] = nil
 	original.Doc.Tags[0] = "mutated"
 	original.Contract.Profiles[0] = "mutated"
@@ -95,6 +98,9 @@ func TestCloneHandlersIsIndependentFromOriginal(t *testing.T) {
 	}
 	if got.Scopes[0] != "scope:a" {
 		t.Error("mutating original Scopes changed the clone")
+	}
+	if got.AccessTypes[0] != "access:a" {
+		t.Error("mutating original AccessTypes changed the clone")
 	}
 	if got.Middleware[0] == nil {
 		t.Error("mutating original Middleware changed the clone")

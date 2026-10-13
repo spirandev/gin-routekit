@@ -46,6 +46,8 @@ type Handler struct {
 	IsIntegration             *bool
 	IsRestricted              *bool
 	Scopes                    []string
+	Category                  string
+	AccessTypes               []string
 	Doc                       *DocConfig
 	Contract                  *Contract
 	DocRemovals               docRemovals
