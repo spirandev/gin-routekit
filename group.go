@@ -95,6 +95,7 @@ func (rg *RouterGroup) addRoute(method, path string, handler gin.HandlerFunc, de
 		IsIntegration:             boolPtr(false),
 		IsRestricted:              boolPtr(false),
 		Scopes:                    []string{},
+		AccessTypes:               []string{},
 	}
 
 	rg.definitions = append(rg.definitions, def)
@@ -152,6 +153,16 @@ func (rc *RouteConfig) Restrict() *RouteConfig {
 
 func (rc *RouteConfig) Scopes(scopes ...string) *RouteConfig {
 	rc.group.definitions[rc.index].Scopes = append([]string{}, scopes...)
+	return rc
+}
+
+func (rc *RouteConfig) Category(name string) *RouteConfig {
+	rc.group.definitions[rc.index].Category = strings.TrimSpace(name)
+	return rc
+}
+
+func (rc *RouteConfig) AccessTypes(types ...string) *RouteConfig {
+	rc.group.definitions[rc.index].AccessTypes = append([]string{}, types...)
 	return rc
 }
 

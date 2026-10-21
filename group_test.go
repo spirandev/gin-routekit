@@ -230,6 +230,48 @@ func TestScopesCopiesInputSlice(t *testing.T) {
 	}
 }
 
+func TestExportCategoryAndAccessTypesMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	group := NewRouterGroup(engine, "/api")
+	group.GET("/default", okHandler, "default", 1)
+	group.POST("/items", okHandler, "create item", 2).Category("  items ").AccessTypes("admin", "support")
+	route := group.Export("api", 123)
+	if len(route.Handlers) != 2 {
+		t.Fatalf("expected 2 handlers, got %d", len(route.Handlers))
+	}
+
+	defaults := route.Handlers[0]
+	if defaults.Category != "" {
+		t.Errorf("default Category = %q, want empty", defaults.Category)
+	}
+	if defaults.AccessTypes == nil || len(defaults.AccessTypes) != 0 {
+		t.Errorf("default AccessTypes = %#v, want empty non-nil slice", defaults.AccessTypes)
+	}
+
+	configured := route.Handlers[1]
+	if configured.Category != "items" {
+		t.Errorf("Category = %q, want %q", configured.Category, "items")
+	}
+	if want := []string{"admin", "support"}; !slices.Equal(configured.AccessTypes, want) {
+		t.Errorf("AccessTypes = %v, want %v", configured.AccessTypes, want)
+	}
+}
+
+func TestAccessTypesCopiesInputSlice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	group := NewRouterGroup(engine, "/api")
+	types := []string{"admin", "support"}
+	group.GET("/resource", okHandler, "resource", 1).AccessTypes(types...)
+	types[0] = "changed"
+	route := group.Export("api", 123)
+	want := []string{"admin", "support"}
+	if !slices.Equal(route.Handlers[0].AccessTypes, want) {
+		t.Errorf("AccessTypes = %v, want %v", route.Handlers[0].AccessTypes, want)
+	}
+}
+
 func TestExportTreatsNilSameApplicationRequirementAsRequired(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

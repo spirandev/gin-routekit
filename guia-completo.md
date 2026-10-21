@@ -444,6 +444,8 @@ route.BasicRoute()
 route.M2MRoute()
 route.IntegrationRoute()
 route.Scopes("read", "write")
+route.Category("items")
+route.AccessTypes("admin", "support")
 ```
 
 Pontos importantes:
@@ -451,6 +453,9 @@ Pontos importantes:
 - `RequireClientContext`, `BasicRoute`, `M2MRoute`, `IntegrationRoute` e `Scopes` nao instalam middleware automaticamente.
 - `M2MRoute` e `IntegrationRoute` podem ser usados por `SecurityRules` para gerar documentacao.
 - `Scopes` substitui os scopes anteriores e copia o slice recebido.
+- `Category` aplica `TrimSpace`; vazio significa usar o `groupName` do `Export` no manifesto.
+- `AccessTypes` substitui os valores anteriores e copia o slice recebido. Por padrao e `[]string{}`.
+- `Category` e `AccessTypes` nao sao validados pela biblioteca; sao usados pelo [envio do manifesto](#sincronizar-via-http-manifesto).
 - `NoAuthz` nao torna a rota publica.
 - Quando autenticacao esta desligada, os middlewares de mesma aplicacao e autorizacao tambem nao executam.
 
@@ -531,6 +536,93 @@ appRouter := routekit.NewAppRouterFromRegistrars(registrars, DatabaseRouteSyncer
 ```
 
 O syncer e executado depois do registro no Gin e depois do snapshot ser salvo. Se o sync falhar, nao existe rollback automatico das rotas.
+
+### Sincronizar via HTTP (manifesto)
+
+`NewManifestSyncer` e um `RouteSyncer` pronto que envia o manifesto de rotas para um servico externo (registro de rotas, gateway, autorizacao). A aplicacao informa URL, metodo e headers livremente; a biblioteca gera o body num formato plugavel. So usa a stdlib, nao le variaveis de ambiente e nao valida valores de dominio (por exemplo, quais access types existem).
+
+```go
+syncer, err := routekit.NewManifestSyncer(routekit.ManifestSyncConfig{
+	URL:     os.Getenv("ROUTES_SYNC_URL"),
+	Headers: http.Header{"Authorization": {"Bearer " + os.Getenv("ROUTES_SYNC_TOKEN")}},
+	Version: version,
+	OnResult: func(r routekit.ManifestSyncResult) { log.Printf("manifest: %s %d", r.Status, r.StatusCode) },
+})
+if err != nil {
+	log.Fatal(err)
+}
+appRouter := routekit.NewAppRouter(routers, syncer)
+```
+
+Configuracao:
+
+| Campo | Padrao | Observacao |
+|---|---|---|
+| `URL` | obrigatorio | URL absoluta http/https, query string usada como recebida |
+| `Method` | `PUT` | precisa estar em `ValidMethods`, usado exatamente como recebido (`"put"` e rejeitado) |
+| `Headers` | vazio | livres (ex.: `Authorization`), copiados na construcao |
+| `Version` | obrigatorio | versao da aplicacao, repassada ao formato |
+| `Format` | `PadraoBodyFormat()` | o `Content-Type` do formato sobrescreve o de `Headers` |
+| `Blocking` | `false` | ver modos abaixo |
+| `Client` | timeout de 15s | resposta lida ate 1 MiB |
+| `Retry` | 5 tentativas, 2s, ate 1min | `Attempts` conta o total, incluindo a primeira; cada campo zerado usa o padrao |
+| `OnResult` | nil | chamado a cada tentativa encerrada, nos dois modos |
+
+Modos:
+
+- O body e montado antes de qualquer envio. Erros de build (`route_id` 0 ou duplicado, `Version` vazia) voltam sempre como `*routekit.ManifestBuildError` pelo `RegisterRoutes`, inclusive em background, porque sao bug de codigo.
+- **Background (padrao):** `RegisterRoutes` retorna na hora e uma goroutine faz o envio. Ha retry com backoff exponencial so em erro de rede, 5xx e 429; os demais 4xx sao definitivos. A goroutine nao pode ser cancelada: chamar `RegisterRoutes` de novo dispara outra goroutine independente.
+- **Blocking (`Blocking: true`):** uma tentativa so. Resposta nao-2xx ou erro de rede volta como `*routekit.ManifestSyncFailure`:
+
+```go
+var failure *routekit.ManifestSyncFailure
+if errors.As(err, &failure) {
+	log.Printf("manifest rejeitado: %s %v", failure.Result.Message, failure.Result.Errors)
+}
+```
+
+`ManifestSyncResult.Status` e `applied`, `unchanged`, `valid`, `rejected` ou `error`. `Err` so e preenchido em erro de rede, e `Body` guarda a resposta crua.
+
+Para combinar com outro syncer, use `ChainRouteSyncers`, que roda em ordem, ignora `nil` e para no primeiro erro:
+
+```go
+appRouter := routekit.NewAppRouter(routers, routekit.ChainRouteSyncers(DatabaseRouteSyncer{}, syncer))
+```
+
+#### Formato padrao
+
+`routekit.PadraoBodyFormat()` (nome `routekit.BodyFormatPadrao`, `"padrao"`) envia `application/json` com exatamente estes campos, com as rotas ordenadas por `route_id`:
+
+```json
+{"version":"1.4.0","routes":[{"route_id":1001,"method":"POST","path":"/api/v1/items",
+ "definition":"Create item","category":"items","is_authentication":true,"is_authorization":true,
+ "requires_client_context":false,"access_types":["admin"],"scopes":[],"is_integration":false,
+ "m2m":false,"is_basic":false,"restricted":false}]}
+```
+
+- `path` e o path completo registrado no Gin (base do grupo mais o path relativo).
+- `category` e o `Category` da rota ou, se vazio, o `groupName` do `Export`.
+- Booleanos sao sempre explicitos; flags nao definidas usam o padrao da rota.
+- `access_types` e `scopes` nunca sao `null`.
+- `IsSameApplicationRequired` nao entra no formato.
+
+Respostas esperadas:
+
+- 2xx: `{"success":true,"message":"...","data":{"status":"applied|unchanged|valid",...}}`. `data` fica em `Details`; status ausente ou desconhecido vira `applied`.
+- Nao-2xx: `{"success":false,"message":"...","code":"...","errors":[{"route_index":0,"route_id":1001,"field":"...","message":"..."}],"details":{}}`, com `Status` `rejected` (`error` em 5xx). Se `errors` nao for essa lista estruturada (ex.: `["CODE"]`), `Errors` fica vazio.
+
+#### Outro formato
+
+Implemente `routekit.BodyFormat` e passe em `Format`. O syncer preenche `Attempt`, `StatusCode` e `Body` no resultado de `ParseResponse`; sucesso e retry sao decididos pelo status HTTP, nao pelo `Status` interpretado.
+
+```go
+type BodyFormat interface {
+	Name() string
+	ContentType() string
+	Build(input ManifestInput) ([]byte, error)
+	ParseResponse(statusCode int, body []byte) ManifestSyncResult
+}
+```
 
 ## Documentacao de endpoints
 
@@ -1850,6 +1942,8 @@ RouteConfig.M2MRoute
 RouteConfig.AllowAnySessionApp
 RouteConfig.IntegrationRoute
 RouteConfig.Scopes
+RouteConfig.Category
+RouteConfig.AccessTypes
 RouteConfig.Use
 RouteConfig.UseDocumented
 ```
@@ -1908,6 +2002,20 @@ AppRouter.RegisterOpenAPI
 AppRouter.RegisterSwaggerUI
 AppRouter.RegisterStoplightUI
 AppRouter.RegisterScalarUI
+```
+
+### Manifest sync
+
+```go
+routekit.NewManifestSyncer
+routekit.ManifestSyncConfig
+routekit.RetryPolicy
+routekit.ChainRouteSyncers
+routekit.PadraoBodyFormat
+routekit.BodyFormat
+routekit.ManifestSyncResult
+routekit.ManifestSyncFailure
+routekit.ManifestBuildError
 ```
 
 ### OpenAPI

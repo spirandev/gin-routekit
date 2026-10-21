@@ -386,3 +386,92 @@ config.Profiles = map[string]routekit.DocProfile{
 Profiles actually used by documented operations are emitted in the top-level `x-routekit-profiles` extension, including `description` when set. Unknown profiles and incompatible profile parameters are errors; duplicate use is a warning.
 
 See [Migrating to OpenAPI 3.1 and fidelity diagnostics](migration-openapi-3.1.md) for breaking changes and before/after examples.
+
+## Manifest sync
+
+`AppRouter.RegisterRoutes` calls its `RouteSyncer` once all routes are registered. `NewManifestSyncer` is a ready-made `RouteSyncer` that publishes those routes to an external service (route registry, gateway, authorization service) over HTTP. It uses only the standard library and does not read environment variables or validate domain values such as which access types exist; that belongs to the application and the destination.
+
+### Route metadata
+
+Two route fluents feed the manifest:
+
+```go
+group.POST("/items", createItem, "Create item", 1001).
+	Category("items").        // trimmed; falls back to the Export groupName
+	AccessTypes("admin")      // copies the input slice, like Scopes
+```
+
+Both default to empty (`""` and `[]string{}`).
+
+### Configuration
+
+```go
+syncer, err := routekit.NewManifestSyncer(routekit.ManifestSyncConfig{
+	URL:     os.Getenv("ROUTES_SYNC_URL"), // absolute http/https URL, query string kept as is
+	Method:  http.MethodPut,               // optional, defaults to PUT
+	Headers: http.Header{"Authorization": {"Bearer " + os.Getenv("ROUTES_SYNC_TOKEN")}},
+	Version: version,                      // required, forwarded to the format
+	OnResult: func(r routekit.ManifestSyncResult) {
+		log.Printf("manifest: attempt %d %s %d", r.Attempt, r.Status, r.StatusCode)
+	},
+})
+if err != nil {
+	log.Fatal(err)
+}
+appRouter := routekit.NewAppRouter(routers, routekit.ChainRouteSyncers(syncer, otherSyncer))
+```
+
+`NewManifestSyncer` rejects a non-absolute or non-http(s) URL, a method outside `routekit.ValidMethods` (used exactly as given, so `"put"` is rejected) and an empty `Version`. `Headers` is copied at construction time; the format's `Content-Type` always wins over a `Content-Type` header in the config. A nil `Client` becomes an `http.Client` with a 15s timeout. Response bodies are read up to 1 MiB.
+
+`ChainRouteSyncers` runs syncers in order, skips nil entries and stops at the first error.
+
+### Background and blocking modes
+
+The body is always built synchronously first. Build errors (for example `route_id` 0 or a duplicated `route_id`) are returned as `*routekit.ManifestBuildError` from `RegisterRoutes` in both modes, because they are code bugs rather than delivery failures.
+
+- **Background (default):** `RegisterRoutes` returns immediately and a goroutine sends the request. It retries with exponential backoff only on network errors, 5xx and 429; any other 4xx is final. `Retry` defaults to 5 attempts in total (including the first), a 2s initial delay doubling up to 1min; each zero field falls back to its default independently. The goroutine cannot be cancelled: it keeps retrying until it succeeds or runs out of attempts, and calling `RegisterRoutes` again starts another independent goroutine.
+- **Blocking (`Blocking: true`):** a single attempt; a non-2xx response or network error is returned from `RegisterRoutes` as `*routekit.ManifestSyncFailure`:
+
+```go
+var failure *routekit.ManifestSyncFailure
+if errors.As(err, &failure) {
+	for _, routeErr := range failure.Result.Errors {
+		log.Printf("route %v: %s %s", routeErr.RouteID, routeErr.Field, routeErr.Message)
+	}
+}
+```
+
+`OnResult` is called after every finished attempt in both modes. `ManifestSyncResult.Status` is one of `applied`, `unchanged`, `valid`, `rejected` or `error`; `Err` is set only for network errors and `Body` holds the raw response.
+
+### The `padrao` format
+
+The built-in format (`routekit.PadraoBodyFormat()`, name `routekit.BodyFormatPadrao`) sends `application/json` with exactly these fields, routes sorted by `route_id`:
+
+```json
+{"version":"1.4.0","routes":[{"route_id":1001,"method":"POST","path":"/api/v1/items",
+ "definition":"Create item","category":"items","is_authentication":true,"is_authorization":true,
+ "requires_client_context":false,"access_types":["admin"],"scopes":[],"is_integration":false,
+ "m2m":false,"is_basic":false,"restricted":false}]}
+```
+
+`path` is the full registered path, booleans are always explicit (unset flags use the route defaults) and `access_types`/`scopes` are never `null`. `IsSameApplicationRequired` is not part of this format.
+
+Expected responses:
+
+- 2xx: `{"success":true,"message":"...","data":{"status":"applied|unchanged|valid",...}}`. `data` is exposed as `Details`; a missing or unknown status is reported as `applied`.
+- Non-2xx: `{"success":false,"message":"...","code":"...","errors":[{"route_index":0,"route_id":1001,"field":"access_types","message":"..."}],"details":{}}`. The status is `rejected` (or `error` for 5xx). When `errors` is not that structured list (for example `["CODE"]`), `Errors` is empty.
+
+### Custom formats
+
+Implement `routekit.BodyFormat` and set it as `Format`:
+
+```go
+type BodyFormat interface {
+	Name() string
+	ContentType() string
+	Build(input ManifestInput) ([]byte, error)
+	ParseResponse(statusCode int, body []byte) ManifestSyncResult
+}
+```
+
+The syncer fills `Attempt`, `StatusCode` and `Body` on the result returned by `ParseResponse`. Success and retry decisions are based on the HTTP status code, not on the parsed `Status`.
